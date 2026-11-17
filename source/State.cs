@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Xml.Serialization;
 
 namespace Lucent
@@ -20,14 +21,15 @@ namespace Lucent
             set { saturation = double.IsNaN(value) ? MinimumVibrance : Math.Max(MinimumVibrance, Math.Min(MaximumVibrance, value)); }
         }
 
-        public double Red=0,Dim=0,DarkStrength=0,BlackLevel=0,Zoom=2,ZoomSharpness=30,PopStrength=60,RadarSensitivity=60;
+        public double Red=0,Dim=0,DarkStrength=0,BlackLevel=0,Zoom=2,ZoomSharpness=30,PopStrength=60,RadarSensitivity=60,RadarOpacity=100;
         // How much of the color blindness aid is applied: 100 is the full aid, 0 none (profiles saved before this existed have the full aid).
         public double VisionStrength=100;
         public string Vision="Normal",DarkColor="Green",PopColor="Off",RadarSize="Medium",RadarPlace="Center";
         // How zoom is sharpened: Adaptive (follows how far it is zoomed and leaves noise and strong edges alone), Manual (the Sharpness slider) or Off.
         public string ZoomSharp="Adaptive";
         // Smart shadows lift the dark parts per pixel on the GPU instead of brightening everything through the display. ZoomFollow magnifies around the pointer.
-        public bool DarkEnabled=false,DarkSmart=false,ZoomFollow=false,RadarOn=false;
+        // DarkSmart is always true now: Dark Boost has only the Smart shadows way (settings from before are moved to it when read).
+        public bool DarkEnabled=false,DarkSmart=true,ZoomFollow=false,RadarOn=false;
         public Look Copy(){return (Look)MemberwiseClone();}
     }
     // A few counts about using Lucent, shown in Settings, Stats. They stay in the settings file on this PC and nothing reads them but Lucent.
@@ -45,11 +47,21 @@ namespace Lucent
             return (minutes/(60*24))+" d "+((minutes/60)%24)+" h";
         }
     }
+    // How long a game was played on one day. Kept on this PC only, in the settings file; nothing reads it but Lucent.
+    public class PlayDay
+    {
+        public string Date="",Game="",Executable="";
+        public double Minutes;
+    }
     public class GameProfile
     {
         // Launch is how the store starts the game (a steam:// or Epic address). Empty for a game added by hand, which is started from its program file.
         public string Name="New profile",Executable="",Launch="";
         public Look Look=new Look();
+        // What else a game's profile sets while the game runs, each only when switched on, and put back when it closes:
+        // the main display's resolution (same refresh rate), and a crosshair of its own (shown or hidden).
+        public bool UseResolution=false;public int ResolutionWidth,ResolutionHeight;
+        public bool UseCrosshair=false,CrosshairOn=true;public CrosshairSettings Crosshair;
     }
     public class Preferences
     {
@@ -57,13 +69,25 @@ namespace Lucent
         public List<GameProfile> Profiles=new List<GameProfile>();
         public List<string> Favorites=new List<string>();
         public bool AutoProfiles=false,Motion=true,Artwork=true,MinimizeToTray=false,RiskAccepted=false,HoldMouse5Zoom=false,BreakReminders=false;
+        // A small notice over the game ("Applied: Rust profile") when a game's profile switches on.
+        public bool ProfileToast=true;
         public int SwitchKey=0,CrosshairKey=0,ZoomKey=0,MediaKey=0,PlayKey=0,NextKey=0,PreviousKey=0,DarkKey=0;
+        // The shortcut that opens the quick panel over a game.
+        public int PanelKey=0;
+        // Compact mode: tighter spacing and smaller headings for small screens.
+        public bool Compact=false;
         public string BackgroundFile="";
         public List<string> CustomBackgrounds=new List<string>();
         public List<string> BoostExclusions=new List<string>();
         public bool PlayerAlwaysOnTop=true,PlayerBarOpen=false,ShowLyrics=false,ArtistPictures=false;
         public string PlayerPosition="Middle";
         public UsageStats Stats=new UsageStats();
+        // Time in games per day (about the last four months), for Playtime on Home.
+        public List<PlayDay> Playtime=new List<PlayDay>();
+        public bool TrackPlaytime=true;
+        // All-time time per game (Date unused), kept for good unlike the daily entries, and the day counting started (yyyy-MM-dd).
+        public List<PlayDay> PlayTotals=new List<PlayDay>();
+        public string PlaySince="";
         // Drifting artwork colors behind the app while something plays.
         public bool AnimatedBackground=true;
         // Turns off what is only for show (moving backgrounds, GIF motion) to use less GPU, CPU and memory.
@@ -82,6 +106,8 @@ namespace Lucent
         // and the size each view was last given (0 means the default).
         public double MiniLyricsSize=26,MiniBackdropSpeed=1,MiniCompactWidth,MiniLyricsWidth,MiniLyricsHeight;
         public bool MiniCenterLyrics=true,MiniHideCompact,MiniHideLyrics;
+        // The line being sung lights word by word.
+        public bool WordLyrics=true;
         public int MinimizeBehaviorVersion;
         // Closing the window keeps Lucent running in the tray. On unless the user turns it off. MinimizeToTray above is no longer used.
         public bool CloseToTray=true,TrayHintShown=false,CheckUpdates=true;
@@ -170,7 +196,12 @@ namespace Lucent
             NormalizeLook(value.Desktop);
             if(value.Profiles==null)value.Profiles=new List<GameProfile>();
             value.Profiles.RemoveAll(profile=>profile==null);
-            foreach(var profile in value.Profiles){if(profile.Look==null)profile.Look=new Look();NormalizeLook(profile.Look);}
+            foreach(var profile in value.Profiles)
+            {
+                if(profile.Look==null)profile.Look=new Look();NormalizeLook(profile.Look);
+                if(profile.Crosshair!=null)profile.Crosshair.Clamp();else profile.UseCrosshair=false;
+                if(profile.ResolutionWidth<320||profile.ResolutionHeight<200||profile.ResolutionWidth>16384||profile.ResolutionHeight>16384){profile.UseResolution=false;profile.ResolutionWidth=profile.ResolutionHeight=0;}
+            }
             if(value.Favorites==null)value.Favorites=new List<string>();
             if(value.CustomBackgrounds==null)value.CustomBackgrounds=new List<string>();
             if(value.BoostExclusions==null)value.BoostExclusions=new List<string>();
@@ -190,8 +221,27 @@ namespace Lucent
             value.PcRings=SystemStats.CleanRings(value.PcRings);
             value.HomeLayout=HomeLayoutText.Clean(value.HomeLayout);
             if(value.CrosshairMonitor==null)value.CrosshairMonitor="";
+            // Profiles saved with an anti-cheat's starter (start_protected_game.exe) never switched on (it closes once the game runs): they follow the game itself.
+            foreach(var profile in value.Profiles)
+                if(profile!=null&&!string.IsNullOrEmpty(profile.Executable))
+                {
+                    string game=GameLibrary.RealGame(profile.Executable);
+                    if(!string.IsNullOrEmpty(game))profile.Executable=game;
+                }
             if(value.DiscordSettingVersion<1){value.DiscordOn=true;value.DiscordSettingVersion=1;}
             if(value.Stats==null)value.Stats=new UsageStats();
+            if(value.Playtime==null)value.Playtime=new List<PlayDay>();
+            string oldest=DateTime.Today.AddDays(-120).ToString("yyyy-MM-dd");DateTime parsed;
+            value.Playtime.RemoveAll(d=>d==null||string.IsNullOrWhiteSpace(d.Game)||!DateTime.TryParseExact(d.Date,"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out parsed)||string.CompareOrdinal(d.Date,oldest)<0||double.IsNaN(d.Minutes)||d.Minutes<=0||d.Minutes>1440);
+            foreach(var day in value.Playtime)if(day.Executable==null)day.Executable="";
+            if(value.PlayTotals==null)value.PlayTotals=new List<PlayDay>();
+            value.PlayTotals.RemoveAll(t=>t==null||string.IsNullOrWhiteSpace(t.Game)||double.IsNaN(t.Minutes)||double.IsInfinity(t.Minutes)||t.Minutes<=0);
+            foreach(var total in value.PlayTotals){if(total.Executable==null)total.Executable="";total.Date="";}
+            // Settings from before the all-time totals: they start from the daily entries already kept.
+            if(value.PlayTotals.Count==0)
+                foreach(var group in value.Playtime.GroupBy(d=>d.Game,StringComparer.OrdinalIgnoreCase))
+                    value.PlayTotals.Add(new PlayDay {Game=group.First().Game,Executable=group.Select(d=>d.Executable).FirstOrDefault(e=>!string.IsNullOrEmpty(e))??"",Minutes=group.Sum(d=>d.Minutes)});
+            if(string.IsNullOrEmpty(value.PlaySince))value.PlaySince=value.Playtime.Count>0?value.Playtime.Min(d=>d.Date):DateTime.Today.ToString("yyyy-MM-dd");
             var counts=value.Stats;counts.Launches=Math.Max(0,counts.Launches);counts.MinutesOpen=Math.Max(0,counts.MinutesOpen);counts.ResolutionSwitches=Math.Max(0,counts.ResolutionSwitches);counts.ZoomUses=Math.Max(0,counts.ZoomUses);counts.GamesStarted=Math.Max(0,counts.GamesStarted);counts.ProfileSwitches=Math.Max(0,counts.ProfileSwitches);counts.MemoryCleanups=Math.Max(0,counts.MemoryCleanups);counts.CrosshairUses=Math.Max(0,counts.CrosshairUses);
             if(string.IsNullOrEmpty(counts.Since))counts.Since=DateTime.Now.ToString("yyyy-MM-dd");
             if(!value.ZoomBindMigrated){value.ZoomBind=value.HoldMouse5Zoom?value.ZoomHoldKey:value.ZoomKey;value.ZoomBindMigrated=true;}
@@ -209,7 +259,9 @@ namespace Lucent
             look.ZoomSharpness=Clamp(look.ZoomSharpness,0,100,30);
             if(look.ZoomSharp!="Manual"&&look.ZoomSharp!="Off")look.ZoomSharp="Adaptive";
             look.ZoomFollow=false;   // zoom around the pointer was removed; zoom is always about the middle of the screen
-            look.PopStrength=Clamp(look.PopStrength,0,100,60);look.RadarSensitivity=Clamp(look.RadarSensitivity,0,100,60);
+            look.PopStrength=Clamp(look.PopStrength,0,100,60);look.RadarSensitivity=Clamp(look.RadarSensitivity,0,100,60);look.RadarOpacity=Clamp(look.RadarOpacity,10,100,100);
+            // There is no Fast mode for Dark Boost any more: every look uses Smart shadows.
+            look.DarkSmart=true;
             if(Array.IndexOf(new[]{"Off","Red","Orange","Yellow","Green","Cyan","Blue","Magenta"},look.PopColor)<0)look.PopColor="Off";
             if(Array.IndexOf(new[]{"Small","Medium","Large"},look.RadarSize)<0)look.RadarSize="Medium";
             if(Array.IndexOf(new[]{"Center","Top","Bottom"},look.RadarPlace)<0)look.RadarPlace="Center";

@@ -13,10 +13,11 @@ internal static class LogicTests
         var oldLook = new Look { Saturation = 0 }; Check(oldLook.Saturation == 100 && ColorMath.Equal(ColorMath.Build(oldLook), ColorMath.Identity()), "Legacy sub-neutral vibrance must become neutral");
         var red=Transform(ColorMath.Build(new Look {Red=100}),0,0,1);Check(red[0]>.01&&red[1]==0&&red[2]==0,"Full red filter must retain blue input as red luminance");
         var dim=Transform(ColorMath.Build(new Look {Dim=50}),1,1,1);Check(Math.Abs(dim[0]-.5)<.0001&&Math.Abs(dim[1]-.5)<.0001&&Math.Abs(dim[2]-.5)<.0001,"Dimming changed channels unequally");
-        // Smart shadows are drawn by the GPU, so the display matrix must not brighten a second time. Fast Dark Boost still does.
-        var fast=ColorMath.Build(new Look {DarkEnabled=true,DarkStrength=60,DarkColor="White"});var smart=ColorMath.Build(new Look {DarkEnabled=true,DarkSmart=true,DarkStrength=60,DarkColor="Green"});
-        Check(!ColorMath.Equal(fast,ColorMath.Identity())&&ColorMath.Equal(smart,ColorMath.Identity()),"Smart shadows and the display matrix must not both lift the picture");
-        var fresh=new Look();Check(!fresh.DarkSmart&&!fresh.ZoomFollow&&fresh.ZoomSharpness==30,"New look defaults keep Dark Boost fast and zoom centered");
+        // Dark Boost is drawn by the GPU (Smart shadows, the only way now), so the display matrix never brightens: not even for an old look saved as Fast.
+        var oldFast=ColorMath.Build(new Look {DarkEnabled=true,DarkSmart=false,DarkStrength=60,DarkColor="White"});var smart=ColorMath.Build(new Look {DarkEnabled=true,DarkSmart=true,DarkStrength=60,DarkColor="Green"});
+        Check(ColorMath.Equal(oldFast,ColorMath.Identity())&&ColorMath.Equal(smart,ColorMath.Identity()),"Dark Boost must only lift the picture on the GPU, never through the display matrix");
+        var fresh=new Look();Check(fresh.DarkSmart&&!fresh.ZoomFollow&&fresh.ZoomSharpness==30,"New look defaults use Smart shadows and keep zoom centered");
+        var wasFast=new Preferences();wasFast.Desktop.DarkSmart=false;StateStore.Normalize(wasFast);Check(wasFast.Desktop.DarkSmart,"A look saved with Fast Dark Boost should become Smart shadows");
         var cleanPrefs=new Preferences();cleanPrefs.Desktop.DarkColor="Clean";cleanPrefs.Profiles.Add(new GameProfile {Look=new Look {DarkColor="Clean"}});StateStore.Normalize(cleanPrefs);Check(cleanPrefs.Desktop.DarkColor=="White"&&cleanPrefs.Profiles[0].Look.DarkColor=="White","A saved Clean tint should become White, which is the same thing");
         var zoomOld=new Preferences {HoldMouse5Zoom=true,ZoomHoldKey=6,ZoomKey=120};StateStore.Normalize(zoomOld);var zoomOldToggle=new Preferences {HoldMouse5Zoom=false,ZoomKey=120};StateStore.Normalize(zoomOldToggle);
         Check(zoomOld.ZoomBind==6&&zoomOldToggle.ZoomBind==120&&zoomOld.ZoomBindMigrated&&new Look().ZoomSharp=="Adaptive","Older zoom keys should become the one zoom bind, and sharpening should start adaptive");
@@ -24,7 +25,7 @@ internal static class LogicTests
         var zoomFollow=new Preferences();zoomFollow.Desktop.ZoomFollow=true;zoomFollow.Desktop.ZoomSharp="Weird";StateStore.Normalize(zoomFollow);Check(!zoomFollow.Desktop.ZoomFollow&&zoomFollow.Desktop.ZoomSharp=="Adaptive","Zoom around the pointer is gone and an unknown sharpening mode becomes adaptive");
         var lowZoom=new Preferences();lowZoom.Desktop.Zoom=1;StateStore.Normalize(lowZoom);Check(lowZoom.Desktop.Zoom==Look.MinimumZoom,"A saved zoom of 1x should be raised to the minimum");
         var oddPrefs=new Preferences();oddPrefs.Desktop.ZoomSharpness=900;oddPrefs.Desktop.Zoom=99;StateStore.Normalize(oddPrefs);Check(oddPrefs.Desktop.ZoomSharpness==100&&oddPrefs.Desktop.Zoom==4,"Saved zoom values are pulled back into range");
-        var visionCopy=oddPrefs.Desktop.Copy();visionCopy.DarkSmart=true;visionCopy.ZoomFollow=true;Check(visionCopy.DarkSmart&&visionCopy.ZoomFollow&&!oddPrefs.Desktop.DarkSmart,"Profile copies keep the new switches independently");
+        var visionCopy=oddPrefs.Desktop.Copy();visionCopy.ZoomFollow=true;visionCopy.DarkStrength=77;Check(visionCopy.ZoomFollow&&visionCopy.DarkStrength==77&&!oddPrefs.Desktop.ZoomFollow&&oddPrefs.Desktop.DarkStrength!=77,"Profile copies keep their switches independently");
         var strong=ColorMath.Build(new Look {Saturation=300,DarkEnabled=true,DarkStrength=100});Check(strong.All(x=>!float.IsNaN(x)&&!float.IsInfinity(x)),"High strength produced invalid matrix");
         // The red filter follows a glowing black body: cream, then amber, then orange, then red. Blue goes first, green last, never pink.
         Func<double,float[]> warm=t=>Transform(ColorMath.Build(new Look {Red=t}),1,1,1);
@@ -211,6 +212,7 @@ internal static class LogicTests
         DiscordHelperChecks();
         LauncherChecks();
         HomeLayoutChecks();
+        PaletteChecks();
         VisionChecks();
         Console.WriteLine("PASS: neutral/legacy-range/red-only/dim matrices, black-body red filter, crosshair rendering/styles/codes/migration, finite high-strength matrix, distinct icons, independent profile snapshots, atomic persistence and backup, system/Vanguard/game/lucent process protections and verified publisher checks, lazy effects lifecycle. No live color/audio/display writes were invoked.");
         string fixtureFolder=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"test-data","ram-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(fixtureFolder);
@@ -235,14 +237,46 @@ internal static class LogicTests
     static void HomeLayoutChecks()
     {
         var standard=HomeLayoutText.Parse("");
-        Check(string.Join(",",standard.Select(e=>e.Key))=="display,playing,pc,shortcuts"&&standard.All(e=>!e.Full&&!e.Hidden),"The standard Home layout is wrong");
+        Check(string.Join(",",standard.Select(e=>e.Key))=="now,display,pc,shortcuts,playtime"&&standard[0].Full&&standard.Skip(1).All(e=>!e.Full)&&standard.All(e=>!e.Hidden),"The standard Home layout is wrong: "+HomeLayoutText.Serialize(standard));
         var mine=HomeLayoutText.Parse("!pc:f;actions:h;shortcuts:h;display:f");
-        Check(string.Join(",",mine.Select(e=>e.Key))=="pc,shortcuts,display,playing"&&mine[0].Hidden&&mine[0].Full&&!mine[1].Full&&mine[2].Full&&!mine[3].Hidden,"A saved Home layout was not read back in order: "+HomeLayoutText.Serialize(mine));
-        Check(HomeLayoutText.Parse("pc:h;pc:f;nonsense:h;;;:x;display").Count==4&&HomeLayoutText.Parse("pc:h;pc:f;nonsense:h").Count(e=>e.Key=="pc")==1,"A damaged Home layout lost or doubled a card");
+        Check(string.Join(",",mine.Select(e=>e.Key))=="now,pc,shortcuts,display,playtime"&&mine[1].Hidden&&mine[1].Full&&!mine[2].Full&&mine[3].Full&&!mine[4].Hidden,"A saved Home layout was not read back in order: "+HomeLayoutText.Serialize(mine));
+        // The old "Now playing" card became "Right now": it keeps its place and is shown, full width.
+        var moved=HomeLayoutText.Parse("display:h;!playing:h;pc:h");
+        Check(string.Join(",",moved.Select(e=>e.Key))=="display,now,pc,shortcuts,playtime"&&!moved[1].Hidden&&moved[1].Full,"Now playing did not become Right now in its place: "+HomeLayoutText.Serialize(moved));
+        Check(HomeLayoutText.Parse("pc:h;pc:f;nonsense:h;;;:x;display").Count==5&&HomeLayoutText.Parse("pc:h;pc:f;nonsense:h").Count(e=>e.Key=="pc")==1,"A damaged Home layout lost or doubled a card");
         Check(HomeLayoutText.Clean(HomeLayoutText.Serialize(mine))==HomeLayoutText.Serialize(mine)&&HomeLayoutText.Clean(null)==HomeLayoutText.Clean(""),"Cleaning a Home layout is not stable");
         var prefs=new Preferences{HomeLayout="garbage;;"};StateStore.Normalize(prefs);
         Check(prefs.HomeLayout==HomeLayoutText.Clean(""),"A broken Home layout was not put right when settings were read");
         Console.WriteLine("PASS: Home layout: standard order and widths, a saved order with hidden and full-width cards read back, damaged text cannot lose or double a card, and settings reading puts it right.");
+    }
+    // ---- The command palette reads what is typed: the words pick the command, a number or on/off at the end is what it gets.
+    static void PaletteChecks()
+    {
+        string ran=null;
+        var commands=new System.Collections.Generic.List<PaletteCommand>
+        {
+            new PaletteCommand{Title="Vibrance",Words=new[]{"saturation"},Argument=PaletteArgument.Number,Min=100,Max=300,Unit="%",Run=a=>ran="vibrance "+a},
+            new PaletteCommand{Title="Crosshair",Argument=PaletteArgument.OnOff,Run=a=>ran="crosshair "+a},
+            new PaletteCommand{Title="Dark Boost",Words=new[]{"shadows"},Argument=PaletteArgument.OnOff,Run=a=>ran="dark "+a},
+            new PaletteCommand{Title="Dark Boost strength",Argument=PaletteArgument.Number,Min=0,Max=100,Run=a=>ran="strength "+a},
+            new PaletteCommand{Title="Boost",Words=new[]{"page"},Run=a=>ran="boost page"},
+            new PaletteCommand{Title="Valorant profile",Words=new[]{"profile"},Run=a=>ran="valorant"},
+        };
+        Func<string,PaletteMatch> top=typed=>{var found=CommandPalette.Match(commands,typed);return found.Count==0?null:found[0];};
+        var m=top("vibrance 150");Check(m!=null&&m.Command.Title=="Vibrance"&&m.Argument=="150"&&m.Ready&&m.Title=="Vibrance 150%","\"vibrance 150\" was not read: "+(m==null?"none":m.Title));
+        m.Command.Run(m.Argument);Check(ran=="vibrance 150","The vibrance command did not get its number");
+        m=top("vib 999%");Check(m!=null&&m.Argument=="300","A number past the end was not kept to the most (300): "+(m==null?"none":m.Argument));
+        m=top("set saturation to 120");Check(m!=null&&m.Command.Title=="Vibrance"&&m.Argument=="120","\"set saturation to 120\" did not find vibrance");
+        m=top("vibrance");Check(m!=null&&!m.Ready,"\"vibrance\" without a number should wait for one");
+        m=top("crosshair off");Check(m!=null&&m.Command.Title=="Crosshair"&&m.Argument=="off","\"crosshair off\" was not read");
+        m=top("crosshair");Check(m!=null&&m.Argument=="","\"crosshair\" alone should switch it");
+        Check(CommandPalette.Wanted("on",false)&&!CommandPalette.Wanted("off",true)&&CommandPalette.Wanted("",false)&&!CommandPalette.Wanted("",true),"On, off and switching are wrong");
+        m=top("dark boost 40");Check(m!=null&&m.Command.Title=="Dark Boost strength"&&m.Argument=="40","\"dark boost 40\" should set the strength (a number goes only to a command that takes one)");
+        m=top("dark");Check(m!=null&&m.Command.Title=="Dark Boost","\"dark\" should find Dark Boost first");
+        m=top("valo");Check(m!=null&&m.Command.Title=="Valorant profile","A profile is not found by the start of its name");
+        Check(CommandPalette.Match(commands,"zzz").Count==0,"Nonsense matched a command");
+        Check(CommandPalette.Match(commands,"").Count==commands.Count,"An empty box should list every command");
+        Console.WriteLine("PASS: command palette: \"vibrance 150\", \"set saturation to 120\", \"crosshair off\", \"dark boost 40\", the start of a profile's name; numbers kept in range, on/off and switching.");
     }
     // ---- Games from the other launchers: the records they leave behind are read correctly, and only safe launch addresses are ever opened.
     static void LauncherChecks()

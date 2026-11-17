@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using TextBlock=Lucent.SmoothText;
@@ -39,37 +40,44 @@ namespace Lucent
             if(stats.Launches>=10||stats.MinutesOpen>=120)return "Getting comfortable";
             return "Just getting started";
         }
+        // Settings, Stats: your playtime. The overall time in games, a few quick numbers, and each game you played with its time.
         void BuildStatsSection(SectionPanel section)
         {
             var title=new TextBlock {FontSize=30,FontWeight=FontWeights.Bold,FontFamily=Design.DisplayFont,Margin=new Thickness(0,2,0,2)};
             var since=new TextBlock {FontSize=13,Foreground=Muted,Margin=new Thickness(0,0,0,14)};
             section.Children.Add(title);
             section.Children.Add(since);
+            var shown=new List<KeyValuePair<TextBlock,Func<Preferences,string>>>();
+            // The overall playtime, large.
+            var overall=new TextBlock {FontSize=44,FontWeight=FontWeights.Bold,FontFamily=Design.DisplayFont};
+            var overallCaption=new TextBlock {Text="Overall playtime",FontSize=13,Foreground=Muted,Margin=new Thickness(0,0,0,14)};
+            section.Children.Add(overall);section.Children.Add(overallCaption);
+            shown.Add(new KeyValuePair<TextBlock,Func<Preferences,string>>(overall,p=>PlayLength(p.PlayTotals.Sum(t=>t.Minutes))));
             var tiles=new WrapPanel();
-            var shown=new List<KeyValuePair<TextBlock,Func<UsageStats,string>>>();
-            Action<string,Func<UsageStats,string>> tile=(label,value)=>
+            Action<string,Func<Preferences,string>> tile=(label,value)=>
             {
                 var number=new TextBlock {FontSize=26,FontWeight=FontWeights.Bold,FontFamily=Design.DisplayFont};
                 var caption=new TextBlock {Text=label,FontSize=12,Foreground=Muted,Margin=new Thickness(0,3,0,0),TextWrapping=TextWrapping.Wrap};
                 var inner=new StackPanel();inner.Children.Add(number);inner.Children.Add(caption);
                 tiles.Children.Add(new Border {Width=170,MinHeight=84,Background=settingsGroupSurface,CornerRadius=new CornerRadius(14),Padding=new Thickness(16,14,14,12),Margin=new Thickness(0,0,10,10),Child=inner});
-                shown.Add(new KeyValuePair<TextBlock,Func<UsageStats,string>>(number,value));
+                shown.Add(new KeyValuePair<TextBlock,Func<Preferences,string>>(number,value));
             };
-            tile("Time with Lucent running",s=>UsageStats.Duration(s.MinutesOpen));
-            tile("Times opened",s=>s.Launches.ToString("N0",CultureInfo.CurrentCulture));
-            tile("Resolution switches",s=>s.ResolutionSwitches.ToString("N0",CultureInfo.CurrentCulture));
-            tile("Times you zoomed in",s=>s.ZoomUses.ToString("N0",CultureInfo.CurrentCulture));
-            tile("Games started from Lucent",s=>s.GamesStarted.ToString("N0",CultureInfo.CurrentCulture));
-            tile("Game looks switched on",s=>s.ProfileSwitches.ToString("N0",CultureInfo.CurrentCulture));
-            tile("RAM cleanups",s=>s.MemoryCleanups.ToString("N0",CultureInfo.CurrentCulture));
-            tile("Crosshair turned on",s=>s.CrosshairUses.ToString("N0",CultureInfo.CurrentCulture));
+            string today=DateTime.Today.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
+            tile("Today",p=>PlayLength(p.Playtime.Where(d=>d.Date==DateTime.Today.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)).Sum(d=>d.Minutes)));
+            tile("This week",p=>PlayLength(Week(p.Playtime,DateTime.Today).Total));
+            tile("Games played",p=>p.PlayTotals.Count.ToString("N0",CultureInfo.CurrentCulture));
+            tile("Most in one day",p=>{var days=p.Playtime.GroupBy(d=>d.Date).Select(g=>g.Sum(d=>d.Minutes)).ToList();return PlayLength(days.Count==0?0:days.Max());});
             section.Children.Add(tiles);
-            var note=new TextBlock {Text="These numbers are only counted and kept on this PC. Nothing is sent anywhere.",FontSize=12,Foreground=Muted,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,4,0,10)};
+            // Each game, most played first, with a bar against the most played one.
+            var gamesHeading=new TextBlock {Text="Your games",FontSize=15,FontWeight=FontWeights.Bold,Margin=new Thickness(0,8,0,8)};
+            var gamesList=new StackPanel();
+            section.Children.Add(gamesHeading);section.Children.Add(gamesList);
+            var note=new TextBlock {Text="Lucent only looks at which game is running. Your playtime is kept on this PC and never sent anywhere.",FontSize=12,Foreground=Muted,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,10,0,10)};
             section.Children.Add(note);
-            var reset=Action("Reset stats",()=>{});
+            var reset=Action("Reset playtime",()=>{});
             // Resetting asks first, so a stray click cannot wipe the numbers.
             var confirm=new StackPanel {Orientation=Orientation.Horizontal,Visibility=Visibility.Collapsed};
-            confirm.Children.Add(new TextBlock {Text="Reset all the numbers to zero?",FontSize=14,FontWeight=FontWeights.SemiBold,VerticalAlignment=VerticalAlignment.Center,Margin=new Thickness(0,0,14,0)});
+            confirm.Children.Add(new TextBlock {Text="Clear all your playtime?",FontSize=14,FontWeight=FontWeights.SemiBold,VerticalAlignment=VerticalAlignment.Center,Margin=new Thickness(0,0,14,0)});
             var yes=Action("Yes, reset",()=>{});
             yes.Style=(Style)Resources["PrimaryAction"];
             var no=Action("Cancel",()=>{});
@@ -83,8 +91,8 @@ namespace Lucent
             bool vacuuming=false;
             Action finishReset=()=>
             {
-                preferences.Stats=new UsageStats {Since=DateTime.Now.ToString("yyyy-MM-dd")};
-                SaveSoon();statsRefresh();
+                preferences.Playtime.Clear();preferences.PlayTotals.Clear();preferences.PlaySince=DateTime.Today.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
+                SaveSoon();statsRefresh();UpdateHome();
             };
             Action vacuum=async()=>
             {
@@ -147,13 +155,53 @@ namespace Lucent
             var buttons=new StackPanel {VerticalAlignment=VerticalAlignment.Center};buttons.Children.Add(reset);buttons.Children.Add(confirm);
             actions.Children.Add(buttons);
             trash.HorizontalAlignment=HorizontalAlignment.Right;Grid.SetColumn(trash,2);actions.Children.Add(trash);
-            section.Children.Add(actions);            statsRefresh=()=>
+            section.Children.Add(actions);
+            statsRefresh=()=>
             {
-                var stats=preferences.Stats;
-                title.Text=StatsTitle(stats);
+                var p=preferences;double all=p.PlayTotals.Sum(t=>t.Minutes);
+                title.Text=PlayTitle(all);
                 DateTime day;
-                since.Text=DateTime.TryParseExact(stats.Since,"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out day)?"Counting since "+day.ToString("d MMM yyyy",CultureInfo.CurrentCulture):"";
-                foreach(var entry in shown){entry.Key.Text=entry.Value(stats);entry.Key.FontSize=entry.Key.Text.Length>8?20:26;}   // a long time such as "13 h 44 min" is smaller so it fits its tile
+                since.Text=DateTime.TryParseExact(p.PlaySince,"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out day)?"Counting since "+day.ToString("d MMM yyyy",CultureInfo.CurrentCulture):"";
+                for(int i=0;i<shown.Count;i++)
+                {
+                    var entry=shown[i];entry.Key.Text=entry.Value(p);
+                    if(i>0)entry.Key.FontSize=entry.Key.Text.Length>8?20:26;   // a long time such as "13 h 44 min" is smaller so it fits its tile
+                }
+                // The games list, rebuilt (it is short): icon, name, a bar against the most played game, and the time.
+                gamesList.Children.Clear();
+                var games=p.PlayTotals.OrderByDescending(t=>t.Minutes).Take(12).ToList();
+                gamesHeading.Visibility=games.Count==0?Visibility.Collapsed:Visibility.Visible;
+                if(games.Count==0)
+                {
+                    gamesList.Children.Add(EmptyRow(EmptyArt.Asleep(52),new TextBlock {Text="No games yet. Play one and it shows up here.",FontSize=13,Foreground=Muted}));
+                    return;
+                }
+                double most=Math.Max(1,games[0].Minutes);
+                foreach(var game in games)
+                {
+                    var row=new Grid {Margin=new Thickness(0,0,0,8)};
+                    row.ColumnDefinitions.Add(new ColumnDefinition {Width=GridLength.Auto});
+                    row.ColumnDefinitions.Add(new ColumnDefinition());
+                    row.ColumnDefinitions.Add(new ColumnDefinition {Width=GridLength.Auto});
+                    var mark=Design.Icon("Profiles",18);mark.HorizontalAlignment=HorizontalAlignment.Center;mark.VerticalAlignment=VerticalAlignment.Center;
+                    var icon=new Image {Width=26,Height=26};RenderOptions.SetBitmapScalingMode(icon,BitmapScalingMode.HighQuality);
+                    var face=new Grid {Width=34,Height=34,Margin=new Thickness(0,0,12,0)};face.Children.Add(new Border {CornerRadius=new CornerRadius(9),Background=settingsGroupSurface});face.Children.Add(mark);face.Children.Add(icon);
+                    if(!TestMode&&!string.IsNullOrEmpty(game.Executable))GameLibrary.LoadIcon(game.Executable,Dispatcher,source=>{icon.Source=source;mark.Visibility=Visibility.Collapsed;});
+                    row.Children.Add(face);
+                    var middle=new StackPanel {VerticalAlignment=VerticalAlignment.Center};
+                    middle.Children.Add(new TextBlock {Text=game.Game,FontSize=14,FontWeight=FontWeights.SemiBold,TextTrimming=TextTrimming.CharacterEllipsis});
+                    var track=new Grid {Height=5,Margin=new Thickness(0,5,16,0)};
+                    track.Children.Add(new Border {CornerRadius=new CornerRadius(2.5),Background=new SolidColorBrush(Color.FromArgb(34,255,255,255))});
+                    var fill=new Border {CornerRadius=new CornerRadius(2.5),Background=Brushes.White,HorizontalAlignment=HorizontalAlignment.Left};
+                    double share=game.Minutes/most;
+                    track.SizeChanged+=(s,e)=>fill.Width=Math.Max(5,e.NewSize.Width*share);
+                    track.Children.Add(fill);
+                    middle.Children.Add(track);
+                    Grid.SetColumn(middle,1);row.Children.Add(middle);
+                    var time=new TextBlock {Text=PlayLength(game.Minutes),FontSize=13,FontWeight=FontWeights.Bold,VerticalAlignment=VerticalAlignment.Center};
+                    Grid.SetColumn(time,2);row.Children.Add(time);
+                    gamesList.Children.Add(row);
+                }
             };
             statsRefresh();
         }

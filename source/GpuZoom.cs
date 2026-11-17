@@ -204,6 +204,7 @@ namespace Lucent
                 cursorApi=MagInitialize();
                 if(!cursorApi)throw new InvalidOperationException("Windows could not start its display tools for zoom.");
                 using(var host=new DisplayWindow())
+                using(var drawnPointer=new OverlayPointer())
                 using(var factory=new Factory1())
                 {
                     if(ReferenceEquals(Target,firstTarget)||ReferenceEquals(Target,followed)){followed=Forms.Screen.PrimaryScreen;Target=followed;}
@@ -237,6 +238,7 @@ namespace Lucent
                     using(var renderer=new ZoomRenderer(device,factory,host.Handle,bounds.Width,bounds.Height,rotation))
                     {
                         bool visible=false,haveFrame=false;
+                        ZoomRequest presented=null;
                         double shown=1;
                         var clock=Stopwatch.StartNew();
                         double last=clock.Elapsed.TotalSeconds;
@@ -254,12 +256,16 @@ namespace Lucent
                             if(!zoomedIn&&!wanted.Wanted)
                             {
                                 if(visible){host.Hide();visible=false;}
+                                drawnPointer.Conceal();
                                 if(cursorHidden&&MagShowSystemCursor(true))cursorHidden=false;
                                 Thread.Sleep(16);
                                 continue;
                             }
                             // Centered zoom hides the pointer, which would otherwise sit at its unmagnified place. Following the pointer keeps it accurate.
-                            bool hide=zoomedIn&&wanted.HideCursor&&!wanted.Follow;
+                            // At normal size (Smart shadows, Color pop) the system pointer is hidden too, and Lucent draws it where the mouse is
+                            // (see OverlayPointer): otherwise it was in the captured picture as well, and a moving pointer showed twice.
+                            bool ownPointer=!zoomedIn;
+                            bool hide=ownPointer||(zoomedIn&&wanted.HideCursor&&!wanted.Follow);
                             if(hide&&!cursorHidden)
                             {
                                 if(!MagShowSystemCursor(false))
@@ -267,21 +273,33 @@ namespace Lucent
                                 cursorHidden=true;
                             }
                             else if(!hide&&cursorHidden&&MagShowSystemCursor(true))cursorHidden=false;
-                            // Take a newer desktop picture if there is one; otherwise keep drawing the last, so easing and pointer motion stay smooth.
+                            if(ownPointer)drawnPointer.Follow();else drawnPointer.Conceal();
+                            // While nothing moves (no easing zoom, no pointer-following, the same settings) the overlay is only drawn again when the desktop
+                            // gives a new picture, and the wait for it is short so the pointer stays smooth. It used to draw the whole screen again at every
+                            // refresh (300 times a second on a fast screen) even when nothing had changed.
+                            bool changing=!visible||host.Revealing||Math.Abs(shown-target)>0||wanted.Follow||!ReferenceEquals(wanted,presented);
                             OutputDuplicateFrameInformation info;
                             SharpDX.DXGI.Resource resource;
-                            var result=capture.TryAcquireNextFrame(0,out info,out resource);
+                            var result=capture.TryAcquireNextFrame(changing?0:4,out info,out resource);
+                            bool fresh=false;
                             if(result!=SharpDX.DXGI.ResultCode.WaitTimeout)
                             {
                                 result.CheckError();
                                 try
                                 {
-                                    using(resource)using(var texture=resource.QueryInterface<Texture2D>())renderer.Capture(texture);
-                                    haveFrame=true;
+                                    // A frame that only moved the pointer has no new picture (LastPresentTime is zero).
+                                    if(info.LastPresentTime!=0||!haveFrame)
+                                    {
+                                        using(resource)using(var texture=resource.QueryInterface<Texture2D>())renderer.Capture(texture);
+                                        haveFrame=true;fresh=true;
+                                    }
+                                    else if(resource!=null)resource.Dispose();
                                 }
                                 finally{capture.ReleaseFrame();}
                             }
                             if(!haveFrame){Thread.Sleep(2);continue;}
+                            if(!fresh&&!changing)continue;
+                            presented=wanted;
                             var matrix=new float[25];
                             if(!NativeEffects.MagGetFullscreenColorEffect(matrix))
                                 throw new InvalidOperationException("Windows could not read the active display colors.");
@@ -302,7 +320,7 @@ namespace Lucent
                             renderer.Present(look,matrix);
                             if(SamplePoints!=null)Sampled=renderer.Sampled;
                             Interlocked.Increment(ref FramesDrawn);
-                            if(!visible){host.ShowOnTop();visible=true;}
+                            if(!visible){host.ShowOnTop();visible=true;drawnPointer.Raise();}
                             else if(host.Revealing)host.FrameDrawn();
                         }
                     }

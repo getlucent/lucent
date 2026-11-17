@@ -122,6 +122,19 @@ namespace Lucent
             RenderBoostRows();
             UpdateLayout();
             CaptureFrame("Game-Boost-protected");
+            {
+                var tray=new TrayPopup("1920 × 1080 · 300 Hz",TrayEntries(),TrayQuickSettings(a=>a()),Resources){WindowStartupLocation=WindowStartupLocation.Manual,Left=-20000,Top=-20000,ShowActivated=false};
+                tray.Show();await Task.Delay(350);tray.UpdateLayout();
+                var element=(FrameworkElement)tray.Content;
+                var shot=new System.Windows.Media.Imaging.RenderTargetBitmap((int)element.ActualWidth,(int)element.ActualHeight,96,96,PixelFormats.Pbgra32);shot.Render(element);
+                var encoder=new System.Windows.Media.Imaging.PngBitmapEncoder();encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(shot));
+                using(var file=File.Create(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"previews","Tray-menu.png")))encoder.Save(file);
+                tray.Close();
+            }
+            preferences.Compact=true;ApplyCompact();ShowPage("Home");SettlePage();contentScroll.ScrollToTop();UpdateLayout();await Task.Delay(200);CaptureFrame("Home-compact");
+            preferences.Compact=false;ApplyCompact();
+            TogglePalette();paletteBox.Text="vib 150";UpdateLayout();await Task.Delay(250);CaptureFrame("Palette");
+            paletteBox.Text="";UpdateLayout();await Task.Delay(100);CaptureFrame("Palette-empty");ClosePalette();
             boostFilter="Apps";
             RenderBoostRows();
             using(var cover=new MemoryStream())

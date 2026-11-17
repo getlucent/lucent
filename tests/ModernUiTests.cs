@@ -123,7 +123,7 @@ class ModernUiTests
     Call(player,"ToggleLyrics");player.UpdateLayout();
     Check(player.LyricsMode&&prefs.ShowLyrics&&player.Lyrics.IsVisible&&player.Height>=500,"Lyrics did not open a taller view: "+player.Height);
     player.Lyrics.SetLyrics(LyricsService.Parse("[00:10.00] one\n[00:20.00] two\n[00:30.00] three",null));player.UpdateLayout();
-    Check(player.Lyrics.LineCount==3&&player.Lyrics.Centered==prefs.MiniCenterLyrics&&Math.Abs(player.Lyrics.LineSize-prefs.MiniLyricsSize)<.01&&((SmoothText)player.Lyrics.Items[0].Child).FontSize==prefs.MiniLyricsSize,"Lyrics do not follow the mini player style settings");
+    Check(player.Lyrics.LineCount==3&&player.Lyrics.Centered==prefs.MiniCenterLyrics&&Math.Abs(player.Lyrics.LineSize-prefs.MiniLyricsSize)<.01&&((SungLine)player.Lyrics.Items[0].Child).FontSize==prefs.MiniLyricsSize,"Lyrics do not follow the mini player style settings");
     // Before the first line is sung, the first line waits in the lit part of the view instead of dim under the fade at the top.
     player.Lyrics.Update(2);var firstLine=player.Lyrics.Items[0];double firstMiddle=firstLine.TranslatePoint(new Point(0,firstLine.ActualHeight/2),player.Lyrics).Y;
     Check(player.Lyrics.ActiveIndex==-1&&firstLine.Opacity>=.75&&Math.Abs(firstMiddle-player.Lyrics.ActualHeight*.34)<4,"Before the first line the lyrics should show it, lit, where the current line goes: opacity "+firstLine.Opacity+", at "+firstMiddle+" of "+player.Lyrics.ActualHeight);
@@ -321,7 +321,7 @@ class ModernUiTests
   var stageColor=((SolidColorBrush)((Border)VisualTreeHelper.GetParent(big)).Background).Color;Check(Math.Abs(stageColor.B-stageColor.R)<8,"The preview background should be neutral, not blue: "+stageColor);
   // Every group is a folder with its own arrow: the saved crosshairs under the preview, then the folders on the right, share codes last.
   var folders=Visuals<Expander>(page).Where(e=>Equals(e.Tag,"Folder")).Select(e=>(string)e.Header).ToArray();
-  Check(string.Join("|",folders)=="Your crosshairs|Shape|Appearance|Crosshair codes","The crosshair page folders are wrong: "+string.Join("|",folders));
+  Check(string.Join("|",folders)=="Try a style|Your crosshairs|Shape|Appearance|Crosshair codes","The crosshair page folders are wrong: "+string.Join("|",folders));
   Check(Visuals<Expander>(page).Where(e=>Equals(e.Tag,"Folder")).All(e=>e.Style==(Style)shell.Resources["FolderExpander"])&&shell.Resources["FolderExpander"]!=shell.Resources["InlineExpander"],"The folders should use their own arrow style");
   var shapeFolder=Visuals<Expander>(page).First(e=>(string)e.Header=="Shape");shapeFolder.IsExpanded=false;Check(!shapeFolder.IsExpanded,"A folder did not close");shapeFolder.IsExpanded=true;
   prefs.Crosshair.FillColor="#19E5A7";
@@ -404,7 +404,8 @@ class ModernUiTests
   Func<string[]> words=()=>Visuals<SmoothText>(page).Select(t=>t.Text).ToArray();
   Func<string,Button> named=n=>Visuals<Button>(page).First(b=>Equals(b.Content,n)||System.Windows.Automation.AutomationProperties.GetName(b)==n);
   foreach(string expected in new[]{"Switch automatically","Your profiles","Desktop","In use"})Check(words().Contains(expected),"Profiles is missing "+expected);
-  Check(words().Any(w=>w.StartsWith("No profiles yet"))&&Visuals<Button>(page).Any(b=>Equals(b.Content,"+   Add another game")),"The empty state does not explain how to start");
+  // The profile list always ends with the Add game profile button (it opens the list of your games).
+  Check(words().Contains("Add game profile")&&Visuals<Button>(page).Any(b=>Equals(b.Content,"+   Add another game")),"The profiles list does not offer Add game profile");
   Check(!words().Contains("Load look")&&!words().Contains("Save current look")&&!words().Contains("Use desktop"),"The old confusing buttons are still there");
   var game=new GameProfile{Name="Test game",Executable=@"C:\Games\Test\game.exe",Look=new Look{Saturation=130}};prefs.Profiles.Add(game);Call(shell,"RefreshProfiles");shell.UpdateLayout();
   Check(words().Contains("Test game")&&words().Contains("game.exe")&&!words().Any(w=>w.StartsWith("No profiles yet")),"A game did not appear as a row");
@@ -425,18 +426,13 @@ class ModernUiTests
   var shown=new System.Collections.Generic.List<LibraryGame>{new LibraryGame{Name="Library Game",Executable=@"C:\Games\Library Game\game.exe",Store="Steam",Launch="steam://rungameid/12345"},new LibraryGame{Name="Another Game",Executable=@"C:\Games\Another\another.exe",Store="Epic Games"}};
   Call(shell,"SetLibrary",shown);shell.UpdateLayout();
   Check(words().Contains("Your games")&&words().Contains("Library Game")&&words().Contains("Another Game")&&words().Contains("Steam")&&words().Contains("Epic Games"),"The game library does not list the games found");
-  named("Library Game").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));shell.UpdateLayout();
-  Check(prefs.Profiles.Count==1&&prefs.Profiles[0].Name=="Library Game"&&prefs.Profiles[0].Executable==@"C:\Games\Library Game\game.exe"&&words().Any(w=>w.StartsWith("\u2713")),"Picking a library game did not give it a look");
-  named("Library Game").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(prefs.Profiles.Count==1,"Picking a game twice added it twice");
+  // A tile only plays the game; a profile is added from the slot under Your profiles (here the same call the slot's list makes).
+  Call(shell,"AddLibraryGame",shown.First(g=>g.Name=="Library Game"));shell.UpdateLayout();
+  Check(prefs.Profiles.Count==1&&prefs.Profiles[0].Name=="Library Game"&&prefs.Profiles[0].Executable==@"C:\Games\Library Game\game.exe","Picking a library game did not give it a profile");
   Check(prefs.Profiles[0].Launch=="steam://rungameid/12345","The profile did not keep how the store starts the game");
-  // The tile glows as one piece apart from Play; over Play only Play glows. Nothing here explains itself in a tooltip, and the page says what a profile does.
-  var libraryTile=Visuals<Border>((DependencyObject)Field(shell,"content")).First(b=>Equals(b.Tag,"Library Game")&&b.Child is Grid);var tileWash=(Border)((Grid)libraryTile.Child).Children[0];var tilePlay=named("Play Library Game");
-  Func<RoutedEvent,MouseEventArgs> pointer=routed=>new MouseEventArgs(Mouse.PrimaryDevice,Environment.TickCount){RoutedEvent=routed};
-  Check(tileWash.Opacity<.01&&tilePlay.ToolTip==null&&named("Library Game").ToolTip==null,"A library tile should be quiet at rest and have no tooltip");
-  libraryTile.RaiseEvent(pointer(Mouse.MouseEnterEvent));await Until(()=>tileWash.Opacity>.99);Check(tileWash.Opacity>.99&&tilePlay.Template.FindName("Glow",tilePlay)!=null,"Hovering a tile should light the whole tile");
-  tilePlay.RaiseEvent(pointer(Mouse.MouseEnterEvent));await Until(()=>tileWash.Opacity<.01);Check(tileWash.Opacity<.01,"Hovering Play should leave only Play glowing: "+tileWash.Opacity);
-  tilePlay.RaiseEvent(pointer(Mouse.MouseLeaveEvent));libraryTile.RaiseEvent(pointer(Mouse.MouseLeaveEvent));await Until(()=>tileWash.Opacity<.01);
-  Check(words().Contains("What a profile saves")&&words().Any(w=>w.StartsWith("A profile is a saved set of settings"))&&words().Any(w=>w.Contains("Dark Boost")&&w.Contains("sound radar"))&&words().Contains("Save your settings"),"The page does not explain what a profile saves");
+  var libraryTile=Visuals<Border>((DependencyObject)Field(shell,"content")).First(b=>Equals(b.Tag,"Library Game")&&b.Child is StackPanel);
+  Check(!Visuals<Button>(libraryTile).Any(b=>System.Windows.Automation.AutomationProperties.GetName(b)=="Library Game")&&named("Play Library Game").ToolTip==null,"The tile itself should not be a button, and Play should have no tooltip");
+  Check(words().Any(w=>w.StartsWith("A profile saves your colors")&&w.Contains("Dark Boost")&&w.Contains("resolution and crosshair"))&&words().Any(w=>w.Contains("Save current settings")),"The page does not say in one line what a profile saves, or has no way to save one");
   // Play starts the game the way its launcher would, from the tile and from the game's row, and never from anything but a store address or the program file.
   named("Play Library Game").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check((string)Field(shell,"lastLaunch")=="steam://rungameid/12345","Play on the tile did not start the game through Steam: "+Field(shell,"lastLaunch"));
   typeof(Shell).GetField("lastLaunch",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public).SetValue(shell,null);
@@ -761,19 +757,21 @@ class ModernUiTests
   prefsPc.Fahrenheit=false;prefsPc.PcRings="CPU,RAM,GPU";
   prefsPc.PcRings="";Call(shell,"ShowSystemStats",(object)null);Check(((FrameworkElement)Field(shell,"pcCard")).Visibility==Visibility.Collapsed,"Home should hide the card when no circle is chosen");
   prefsPc.PcRings=keptRings;Call(shell,"ShowSystemStats",(object)null);
-  // Settings, Stats: friendly numbers kept on this PC.
-  var prefs=(Preferences)Field(shell,"preferences");var stats=prefs.Stats;long keptSwitches=stats.ResolutionSwitches,keptZoom=stats.ZoomUses;
-  stats.ResolutionSwitches=7;stats.ZoomUses=0;((Action)Field(shell,"statsRefresh"))();Call(shell,"SelectSettingsCategory","Stats");shell.UpdateLayout();
+  // Settings, Stats: your playtime (overall, today, this week, games played, most in a day) and each game with its time.
+  var prefs=(Preferences)Field(shell,"preferences");var keptDays=prefs.Playtime.ToList();var keptTotals=prefs.PlayTotals.ToList();
+  prefs.Playtime.Clear();prefs.PlayTotals.Clear();
+  Shell.AddPlaytime(prefs.Playtime,DateTime.Today,"Test Game","",90);Shell.AddTotal(prefs.PlayTotals,"Test Game","",90);Shell.AddTotal(prefs.PlayTotals,"Older Game","",30);
+  ((Action)Field(shell,"statsRefresh"))();Call(shell,"SelectSettingsCategory","Stats");shell.UpdateLayout();
   var statWords=Visuals<SmoothText>(shell).Select(w=>w.Text).ToArray();
-  Check(new[]{"Times opened","Resolution switches","Times you zoomed in","Games started from Lucent","RAM cleanups","7"}.All(statWords.Contains),"The Stats tab is missing its numbers: "+string.Join("|",statWords.Take(30)));
-  Check(Shell.StatsTitle(new UsageStats{ZoomUses=300})=="Eagle eye"&&Shell.StatsTitle(new UsageStats())=="Just getting started"&&Shell.StatsTitle(new UsageStats{MinutesOpen=7000})=="Lucent lifer","The Stats titles are wrong");
+  Check(new[]{"Overall playtime","2 h 00 min","Today","This week","Games played","Most in one day","Test Game","Older Game","1 h 30 min"}.All(statWords.Contains)&&!statWords.Contains("Times opened"),"The Stats tab should show playtime, not the old counters: "+string.Join("|",statWords.Take(40)));
+  Check(Shell.PlayTitle(0)=="Warming up"&&Shell.PlayTitle(90)=="Getting into it"&&Shell.PlayTitle(60*600)=="Veteran","The playtime titles are wrong");
   // Resetting asks first.
   Func<string,Button> statButton=name=>Visuals<Button>(shell).First(b=>Equals(b.Content,name));
-  stats.ResolutionSwitches=7;statButton("Reset stats").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-  Check(prefs.Stats.ResolutionSwitches==7&&Visuals<SmoothText>(shell).Any(w=>w.Text=="Reset all the numbers to zero?"&&((UIElement)w.Parent).Visibility==Visibility.Visible),"Reset stats should ask before doing anything");
-  statButton("Cancel").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(prefs.Stats.ResolutionSwitches==7,"Cancel should keep the numbers");
-  statButton("Reset stats").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));statButton("Yes, reset").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(prefs.Stats.ResolutionSwitches==0&&prefs.Stats.Launches==0,"Yes should reset the numbers");
-  prefs.Stats.ResolutionSwitches=keptSwitches;prefs.Stats.ZoomUses=keptZoom;((Action)Field(shell,"statsRefresh"))();Call(shell,"SelectSettingsCategory","Appearance");
+  statButton("Reset playtime").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+  Check(prefs.PlayTotals.Count==2&&Visuals<SmoothText>(shell).Any(w=>w.Text=="Clear all your playtime?"&&((UIElement)w.Parent).Visibility==Visibility.Visible),"Reset playtime should ask before doing anything");
+  statButton("Cancel").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(prefs.PlayTotals.Count==2,"Cancel should keep the playtime");
+  statButton("Reset playtime").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));statButton("Yes, reset").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(prefs.PlayTotals.Count==0&&prefs.Playtime.Count==0,"Yes should clear the playtime");
+  prefs.Playtime.AddRange(keptDays);prefs.PlayTotals.AddRange(keptTotals);((Action)Field(shell,"statsRefresh"))();Call(shell,"SelectSettingsCategory","Appearance");
   // Notices: a card that takes the colors of what is playing and slides away quickly; the eye-break test shows the reminder.
   var card=(Border)Field(shell,"statusCard");var statusClock=(System.Windows.Threading.DispatcherTimer)Field(shell,"statusTimer");
   var accentField=typeof(Shell).GetField("mediaAccent",BindingFlags.Instance|BindingFlags.NonPublic);var keptAccent=accentField.GetValue(shell);bool keptAdaptiveNotice=prefs.AdaptiveTheme;prefs.AdaptiveTheme=true;
@@ -834,8 +832,8 @@ class ModernUiTests
   ((Slider)sliders["Sharpness"]).Value=70;Check(Math.Abs(current.ZoomSharpness-70)<.01,"The sharpness slider did not set the look");
   chipOf("Off").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(current.ZoomSharp=="Off"&&manualBox.Visibility==Visibility.Collapsed,"Off should hide the slider");
   chipOf("Adaptive").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(current.ZoomSharp=="Adaptive","Adaptive did not get chosen again");
-  chipOf("Smart shadows").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(current.DarkSmart&&Equals(chipOf("Smart shadows").Content,"\u2713  Smart shadows"),"Smart shadows did not get chosen");
-  chipOf("Fast").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(!current.DarkSmart,"Fast did not get chosen");chipOf("Smart shadows").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+  // Dark Boost has no mode to choose any more: it is always Smart shadows.
+  Check(current.DarkSmart,"Dark Boost should always use Smart shadows");
   // Try zoom: it starts from the button, keeps the pointer, and ends by itself or with the end call (Esc does the same).
   prefs.RiskAccepted=false;Visuals<Button>(page).First(b=>Equals(b.Content,"Try zoom for 5 seconds")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(!(bool)Field(shell,"zoomed"),"Try zoom ran without the rules being reviewed");
   prefs.RiskAccepted=true;Visuals<Button>(page).First(b=>Equals(b.Content,"Try zoom for 5 seconds")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check((bool)Field(shell,"zoomed")&&(bool)Field(shell,"zoomFromButton"),"Try zoom did not start");
@@ -859,8 +857,8 @@ class ModernUiTests
   var boost=toggle("Enable Dark Boost");current.DarkEnabled=false;prefs.RiskAccepted=false;Call(shell,"ToggleDarkBoost");Check(!current.DarkEnabled,"Dark Boost switched on without the rules being reviewed");
   prefs.RiskAccepted=true;Call(shell,"ToggleDarkBoost");Check(current.DarkEnabled&&boost.IsChecked==true,"The Dark Boost shortcut did not switch it on");Call(shell,"ToggleDarkBoost");Check(!current.DarkEnabled&&boost.IsChecked==false,"The Dark Boost shortcut did not switch it off");
   // A profile that is loaded brings the switches and sliders along.
-  Call(shell,"LoadLook",new Look{DarkSmart=false,ZoomSharpness=10,Zoom=2},"Probe");
-  Check(Equals(chipOf("Adaptive").Content,"\u2713  Adaptive")&&Equals(chipOf("Fast").Content,"\u2713  Fast")&&Math.Abs(((Slider)sliders["Sharpness"]).Value-10)<.01,"Loading a look did not update the zoom and Dark Boost controls");
+  Call(shell,"LoadLook",new Look{ZoomSharpness=10,Zoom=2},"Probe");
+  Check(Equals(chipOf("Adaptive").Content,"\u2713  Adaptive")&&Math.Abs(((Slider)sliders["Sharpness"]).Value-10)<.01,"Loading a look did not update the zoom controls");
   Check(radarSwitch.IsChecked==false&&Equals(Visuals<Button>(page).First(b=>Equals(b.Tag,"Off")&&b.Parent is WrapPanel&&((WrapPanel)b.Parent).Children.Count==8).Content,"\u2713  Off")&&Equals(Visuals<Button>(page).First(b=>Equals(b.Tag,"Medium")).Content,"\u2713  Medium"),"Loading a look did not reset Color pop and the radar controls");
   Check(Field(shell,"gpuZoom")==null,"A test started the GPU overlay");
   // The tint a Dark Boost color adds to the GPU path matches what the display matrix uses.
@@ -882,13 +880,14 @@ class ModernUiTests
   foreach(string card in new[]{"Your display","Shortcuts"})Check(words.Contains(card),"Home is missing "+card);
   var info=(DisplayInfo)Field(shell,"selected");var mode=DisplayService.GetCurrentMode(info.DeviceName);
   Check(words.Contains(mode.Width+" \u00D7 "+mode.Height)&&words.Any(w=>w.StartsWith(mode.Frequency+" Hz")),"Home does not show the current display mode");
-  typeof(Shell).GetField("ambientTrack",Private).SetValue(shell,null);Call(shell,"UpdateHome");words=Visuals<SmoothText>(page).Select(t=>t.Text).ToArray();Check(!Visuals<SmoothText>(page).First(t=>t.Text=="Now playing").IsVisible,"Home should hide Now playing when nothing is playing");
+  // Right now (the game and the song) replaced Now playing: it stays, and says when nothing plays.
+  typeof(Shell).GetField("ambientTrack",Private).SetValue(shell,null);Call(shell,"UpdateHome");words=Visuals<SmoothText>(page).Select(t=>t.Text).ToArray();Check(words.Contains("Right now")&&words.Contains("Nothing playing")&&!words.Contains("Now playing"),"Home should show Right now, saying nothing is playing");
   var coverImage=(Image)Field(shell,"homeCover");Check(coverImage.Source==null,"Home shows a cover with nothing playing");
   var homeArt=new System.Windows.Media.Imaging.PngBitmapEncoder();homeArt.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(Cover(Color.FromRgb(60,160,220))));byte[] homeCoverBytes;using(var stream=new MemoryStream()){homeArt.Save(stream);homeCoverBytes=stream.ToArray();}
   typeof(Shell).GetField("ambientTrack",Private).SetValue(shell,new MediaTrack{Title="Home song",Artist="Home artist",Source="Fixture",Playing=true,Artwork=homeCoverBytes});Call(shell,"UpdateHome");shell.UpdateLayout();
-  Check(coverImage.Source!=null&&coverImage.IsVisible&&coverImage.ActualWidth>=90,"Home does not show the album cover");
+  Check(coverImage.Source!=null&&coverImage.IsVisible&&coverImage.ActualWidth>=60,"Home does not show the album cover");
   words=Visuals<SmoothText>(page).Select(t=>t.Text).ToArray();
-  Check(Visuals<SmoothText>(page).First(t=>t.Text=="Now playing").IsVisible&&words.Contains("Home song")&&words.Contains("Home artist")&&Visuals<Button>(page).Any(b=>Equals(b.Content,"Open player")&&b.IsVisible),"Home does not show what is playing");
+  Check(words.Contains("Home song")&&words.Contains("Home artist"),"Home does not show what is playing");
   typeof(Shell).GetField("ambientTrack",Private).SetValue(shell,null);Call(shell,"UpdateHome");Check(coverImage.Source==null,"Home kept the cover after the track ended");
   Check(!words.Contains("Quick actions")&&!Visuals<Button>(page).Any(b=>System.Windows.Automation.AutomationProperties.GetName(b)=="Boost"),"Home should no longer have Quick actions");
   Call(shell,"ShowPage","Video");
@@ -1109,7 +1108,8 @@ await Until(()=>((UIElement)Field(shell,"settingsLayer")).Visibility!=Visibility
   Check(view.Lyrics.Synced&&view.Lyrics.LineCount==30&&view.Lyrics.ActiveIndex==-1&&view.Lyrics.Note==null,"Lyrics did not load");
   view.Lyrics.Update(0);Check(view.Lyrics.ActiveIndex==-1,"A line was lit before the song reached it");
   Func<int,int> litPixels=index=>{var lyr=view.Lyrics;SmoothText.SetCrisp(lyr,true);lyr.UpdateLayout();var shotBox=new System.Windows.Media.Imaging.RenderTargetBitmap((int)lyr.ActualWidth,(int)lyr.ActualHeight,96,96,PixelFormats.Pbgra32);var shotVisual=new DrawingVisual();using(var dc=shotVisual.RenderOpen())dc.DrawRectangle(new VisualBrush(lyr),null,new Rect(0,0,lyr.ActualWidth,lyr.ActualHeight));shotBox.Render(shotVisual);var line=lyr.Items[index];int mid=(int)line.TransformToAncestor(lyr).Transform(new Point(0,line.ActualHeight/2)).Y;int top=Math.Max(0,mid-15);var strip=new byte[(int)lyr.ActualWidth*4*30];shotBox.CopyPixels(new Int32Rect(0,top,(int)lyr.ActualWidth,Math.Min(30,(int)lyr.ActualHeight-top)),strip,(int)lyr.ActualWidth*4,0);int bright=0;for(int k=3;k<strip.Length;k+=4)if(strip[k]>240)bright++;lyr.ClearValue(SmoothText.CrispProperty);return bright;};
-  Check(litPixels(0)>200,"The first line is drawn dim before the song reaches it (the fade mask must not reach into it): "+litPixels(0));
+  // Before the song reaches it the first line is at full strength with none of its words lit yet (so it does not empty out and refill as it starts).
+  Check(view.Lyrics.Items[0].Opacity>.99,"The first line is not shown at full strength before the song reaches it: "+view.Lyrics.Items[0].Opacity);
   // Before the song reaches the first line it is the lit one, and pointing at it must not grey it.
   {var first=view.Lyrics.Items[0];Check(first.Opacity>.99,"The first line should be fully lit before the song starts: "+first.Opacity);first.RaiseEvent(new MouseEventArgs(Mouse.PrimaryDevice,Environment.TickCount){RoutedEvent=UIElement.MouseEnterEvent,Source=first});first.RaiseEvent(new MouseEventArgs(Mouse.PrimaryDevice,Environment.TickCount){RoutedEvent=UIElement.MouseLeaveEvent,Source=first});await Task.Delay(300);Check(first.Opacity>.99,"Pointing at the first line greyed it: "+first.Opacity);}
   view.Lyrics.Update(4.8);Check(view.Lyrics.ActiveIndex==0,"The first line should light as it starts: "+view.Lyrics.ActiveIndex);

@@ -47,8 +47,7 @@ namespace Lucent
         }
         [STAThread] public static void Main(string[] args)
         {
-            if(args.Length==3&&args[0]=="--effects"){NativeEffects.Worker(args[1],int.Parse(args[2]));return;}
-            if(args.Length>0&&args[0]=="--custom-resolution-trial"){CustomResolutionWorker.Run(args);return;}
+            if(args.Length==3&&args[0]=="--effects"){NativeEffects.Worker(args[1],int.Parse(args[2]));return;}            if(args.Length>0&&args[0]=="--custom-resolution-trial"){CustomResolutionWorker.Run(args);return;}
             if(args.Length>0&&args[0]=="--refresh-only-trial"){RefreshRateWorker.Run(args);return;}
             bool capture = args.Contains("--capture")||args.Contains("--design-test");
             bool unique;using(var owner=new Mutex(true,capture ? "Local\\Lucent.Preview.Capture" : LegacyNames.SingleInstanceMutex,out unique))
@@ -204,9 +203,10 @@ namespace Lucent
             BuildNotice();
             statusTimer.Tick+=(sender,args)=>HideStatus();
             saveTimer.Tick+=(s,e)=>{saveTimer.Stop();SavePreferences();};effectTimer.Tick+=(s,e)=>{effectTimer.Stop();UpdateEffects();};
-            profileTimer.Tick+=(s,e)=>{PollProfiles();var ignored=RefreshPlayStates();var sampled=RefreshSystemStats();};
+            profileTimer.Tick+=(s,e)=>{PollProfiles();var ignored=RefreshPlayStates();var sampled=RefreshSystemStats();if(page=="Home"&&!settingsOpen&&IsVisible)RefreshDashboard();};
             memoryTimer.Tick+=(s,e)=>{if(IsVisible && WindowState!=WindowState.Minimized)RefreshMemoryDashboard();};
             zoomHoldTimer.Tick+=(s,e)=>PollZoomBind();
+            HookPalette();
             Loaded+=async (s,e)=>
             {
                 if(!TestMode)
@@ -217,6 +217,8 @@ namespace Lucent
                     SetupTray();
                     RegisterKeys();
                     profileTimer.Start();
+                    StartPlaytime();
+                    PrepareQuickPanel();
                     ListenForDisplayChanges();
                     ListenForActivation();
                     StartZoomPolling();
@@ -276,11 +278,12 @@ namespace Lucent
         StackPanel Page(string title,string subtitle)
         {
             var stack=new StackPanel {Margin=new Thickness(0,16,0,5)};
-            stack.Children.Add(Text(title,32,true));
+            var heading=Text(title,32,true);
+            stack.Children.Add(Compactable(heading,heading));
             var sub=Text(subtitle,14);
             sub.Foreground=Muted;
             sub.Margin=new Thickness(0,6,0,26);
-            stack.Children.Add(sub);
+            stack.Children.Add(Compactable(sub));
             return stack;
         }
         FrameworkElement SettingsPage(){return PolishedSettingsPage();}
@@ -593,7 +596,7 @@ namespace Lucent
             }
             closing=true;
             Microsoft.Win32.SystemEvents.SessionEnding-=OnSessionEnding;
-            foreach(var timer in new[]{paletteTimer,statusTimer,profileTimer,memoryTimer,zoomHoldTimer,saveTimer,effectTimer})timer.Stop();
+            foreach(var timer in new[]{paletteTimer,statusTimer,profileTimer,memoryTimer,zoomHoldTimer,saveTimer,effectTimer,playtimeTimer})timer.Stop();
             if(zoomEdgeTimer!=null){zoomEdgeTimer.Dispose();zoomEdgeTimer=null;}
             UpdateZoomWheel(false);
             DisposeDarkHold();
@@ -607,6 +610,7 @@ namespace Lucent
             playerBar.Core.Stop();
             DisableEffects();
             if(limiter!=null)limiter.Dispose();
+            RestoreCrosshairBeforeSaving();
             if(!TestMode)SavePreferences();
             if(crosshair!=null)crosshair.Dispose();
             foreach(var item in bindings.Values)item.Dispose();
@@ -640,7 +644,9 @@ namespace Lucent
         SectionPanel Section(string title,string subtitle,bool neutral=false)
         {
             var panel=new StackPanel {Margin=new Thickness(22,19,22,19)};
-            panel.Children.Add(Text(title,20,true));
+            var heading=Text(title,20,true);
+            panel.Children.Add(heading);
+            Compactable(panel,heading);
             if(!string.IsNullOrEmpty(subtitle)){var hint=Text(subtitle,13);hint.Foreground=Muted;panel.Children.Add(hint);}
             var border=new Border
             {
@@ -648,6 +654,7 @@ namespace Lucent
                 BorderBrush=null,
                 BorderThickness=new Thickness(0),CornerRadius=new CornerRadius(16),Margin=new Thickness(0,0,0,14),Child=neutral?(UIElement)panel:Design.Glass(panel,16)
             };
+            Compactable(border);
             var holder=new StackPanel();holder.Children.Add(border);return new SectionPanel(panel,holder);
         }
         // SectionPanel forwards added children into its bordered content.
@@ -771,7 +778,7 @@ namespace Lucent
         }
         CheckBox Toggle(string text,bool value,Action<bool> change)
         {
-            var check=new CheckBox {Content=text,IsChecked=value,Margin=new Thickness(0,11,0,11),Style=(Style)Resources["ToggleStyle"]};
+            var check=Compactable(new CheckBox {Content=text,IsChecked=value,Margin=new Thickness(0,11,0,11),Style=(Style)Resources["ToggleStyle"]});
             check.Click+=(s,e)=>
             {
                 try
@@ -793,6 +800,7 @@ namespace Lucent
                 preferences.AutoProfiles=value;
                 foreach(var other in autoChecks)other.IsChecked=value;
                 lastAutoProfile=null;
+                if(!value)RestoreAfterGame();
                 if(!value&&activeProfile!="Desktop")LoadLook(preferences.Desktop,"Desktop");
                 SaveSoon();
             });
@@ -856,7 +864,7 @@ namespace Lucent
         <Style TargetType='ComboBox'><Setter Property='Foreground' Value='White'/><Setter Property='Background' Value='{DynamicResource AdaptiveControlBrush}'/><Setter Property='Padding' Value='10'/><Setter Property='Margin' Value='0,5,0,8'/><Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ComboBox'><Grid><Border Background='{TemplateBinding Background}' BorderBrush='#2EFFFFFF' BorderThickness='1' CornerRadius='10'/><Border x:Name='Glow' Background='#14FFFFFF' CornerRadius='10' Opacity='0' IsHitTestVisible='False'/><ContentPresenter Content='{TemplateBinding SelectionBoxItem}' ContentTemplate='{TemplateBinding SelectionBoxItemTemplate}' Margin='12,8,35,8' IsHitTestVisible='False' VerticalAlignment='Center'/><ToggleButton Focusable='False' IsChecked='{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}'><ToggleButton.Template><ControlTemplate TargetType='ToggleButton'><Border Background='Transparent'><ContentPresenter Content='⌄' TextElement.Foreground='#D0D0D0' HorizontalAlignment='Right' VerticalAlignment='Center' Margin='0,0,12,2'/></Border></ControlTemplate></ToggleButton.Template></ToggleButton><Popup x:Name='PART_Popup' IsOpen='{TemplateBinding IsDropDownOpen}' Placement='Bottom' AllowsTransparency='True' PopupAnimation='Fade'><Border Background='{DynamicResource AdaptiveTooltipBrush}' BorderBrush='#505050' BorderThickness='1' CornerRadius='7' MinWidth='{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}' MaxHeight='360'><ScrollViewer CanContentScroll='True' VerticalScrollBarVisibility='Hidden'><ItemsPresenter/></ScrollViewer></Border></Popup></Grid><ControlTemplate.Triggers><EventTrigger RoutedEvent='MouseEnter'><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName='Glow' Storyboard.TargetProperty='Opacity' To='1' Duration='0:0:.1'/></Storyboard></BeginStoryboard></EventTrigger><EventTrigger RoutedEvent='MouseLeave'><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName='Glow' Storyboard.TargetProperty='Opacity' To='0' Duration='0:0:.16'/></Storyboard></BeginStoryboard></EventTrigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
         <Style TargetType='ComboBoxItem'><Setter Property='Foreground' Value='White'/><Setter Property='Padding' Value='12,9'/><Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ComboBoxItem'><Border x:Name='B' Background='Transparent' Padding='{TemplateBinding Padding}'><ContentPresenter/></Border><ControlTemplate.Triggers><Trigger Property='IsHighlighted' Value='True'><Setter TargetName='B' Property='Background' Value='{DynamicResource AdaptiveSelectionBrush}'/></Trigger><Trigger Property='IsSelected' Value='True'><Setter TargetName='B' Property='Background' Value='{DynamicResource AdaptiveSelectionBrush}'/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
         <Style TargetType='CheckBox'><Setter Property='Foreground' Value='White'/></Style>
-        <Style x:Key='ToggleStyle' TargetType='CheckBox'><Setter Property='FocusVisualStyle' Value='{x:Null}'/><Setter Property='Foreground' Value='White'/><Setter Property='Cursor' Value='Hand'/><Setter Property='MinHeight' Value='38'/><Setter Property='FontSize' Value='14'/><Setter Property='Template'><Setter.Value><ControlTemplate TargetType='CheckBox'><DockPanel LastChildFill='True'><Border x:Name='Track' DockPanel.Dock='Right' Width='34' Height='19' CornerRadius='10' Margin='16,0,0,0'><Border.Background><SolidColorBrush Color='#3C3C3C'/></Border.Background><Ellipse x:Name='Knob' Width='13' Height='13' HorizontalAlignment='Left' Margin='3,0,3,0'><Ellipse.Fill><SolidColorBrush Color='#C0C0C0'/></Ellipse.Fill><Ellipse.RenderTransform><TranslateTransform/></Ellipse.RenderTransform></Ellipse></Border><ContentPresenter VerticalAlignment='Center'/></DockPanel><ControlTemplate.Triggers><Trigger Property='IsChecked' Value='True'><Trigger.EnterActions><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName='Knob' Storyboard.TargetProperty='(UIElement.RenderTransform).(TranslateTransform.X)' To='15' Duration='0:0:.17'><DoubleAnimation.EasingFunction><BackEase EasingMode='EaseOut' Amplitude='.5'/></DoubleAnimation.EasingFunction></DoubleAnimation><ColorAnimation Storyboard.TargetName='Track' Storyboard.TargetProperty='(Border.Background).(SolidColorBrush.Color)' To='White' Duration='0:0:.14'/><ColorAnimation Storyboard.TargetName='Knob' Storyboard.TargetProperty='(Shape.Fill).(SolidColorBrush.Color)' To='#171717' Duration='0:0:.14'/></Storyboard></BeginStoryboard></Trigger.EnterActions><Trigger.ExitActions><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName='Knob' Storyboard.TargetProperty='(UIElement.RenderTransform).(TranslateTransform.X)' To='0' Duration='0:0:.17'><DoubleAnimation.EasingFunction><BackEase EasingMode='EaseOut' Amplitude='.5'/></DoubleAnimation.EasingFunction></DoubleAnimation><ColorAnimation Storyboard.TargetName='Track' Storyboard.TargetProperty='(Border.Background).(SolidColorBrush.Color)' To='#3C3C3C' Duration='0:0:.14'/><ColorAnimation Storyboard.TargetName='Knob' Storyboard.TargetProperty='(Shape.Fill).(SolidColorBrush.Color)' To='#C0C0C0' Duration='0:0:.14'/></Storyboard></BeginStoryboard></Trigger.ExitActions></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
+        <Style x:Key='ToggleStyle' TargetType='CheckBox'><Setter Property='FocusVisualStyle' Value='{x:Null}'/><Setter Property='Foreground' Value='White'/><Setter Property='Cursor' Value='Hand'/><Setter Property='MinHeight' Value='38'/><Setter Property='FontSize' Value='14'/><Setter Property='Template'><Setter.Value><ControlTemplate TargetType='CheckBox'><DockPanel LastChildFill='True'><Border x:Name='Track' DockPanel.Dock='Right' Width='34' Height='19' CornerRadius='10' Margin='16,0,0,0'><Border.Background><SolidColorBrush Color='#3C3C3C'/></Border.Background><Ellipse x:Name='Knob' Width='13' Height='13' HorizontalAlignment='Left' Margin='3,0,3,0'><Ellipse.Fill><SolidColorBrush Color='#C0C0C0'/></Ellipse.Fill><Ellipse.RenderTransform><TranslateTransform/></Ellipse.RenderTransform></Ellipse></Border><ContentPresenter VerticalAlignment='Center'/></DockPanel><ControlTemplate.Triggers><Trigger Property='IsChecked' Value='True'><Trigger.EnterActions><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName='Knob' Storyboard.TargetProperty='(UIElement.RenderTransform).(TranslateTransform.X)' To='15' Duration='0:0:.46'><DoubleAnimation.EasingFunction><ElasticEase EasingMode='EaseOut' Oscillations='1' Springiness='6'/></DoubleAnimation.EasingFunction></DoubleAnimation><DoubleAnimation Storyboard.TargetName='Knob' Storyboard.TargetProperty='Width' From='13' To='17' Duration='0:0:.08' AutoReverse='True'><DoubleAnimation.EasingFunction><SineEase EasingMode='EaseOut'/></DoubleAnimation.EasingFunction></DoubleAnimation><ColorAnimation Storyboard.TargetName='Track' Storyboard.TargetProperty='(Border.Background).(SolidColorBrush.Color)' To='White' Duration='0:0:.14'/><ColorAnimation Storyboard.TargetName='Knob' Storyboard.TargetProperty='(Shape.Fill).(SolidColorBrush.Color)' To='#171717' Duration='0:0:.14'/></Storyboard></BeginStoryboard></Trigger.EnterActions><Trigger.ExitActions><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName='Knob' Storyboard.TargetProperty='(UIElement.RenderTransform).(TranslateTransform.X)' To='0' Duration='0:0:.17'><DoubleAnimation.EasingFunction><BackEase EasingMode='EaseOut' Amplitude='.5'/></DoubleAnimation.EasingFunction></DoubleAnimation><ColorAnimation Storyboard.TargetName='Track' Storyboard.TargetProperty='(Border.Background).(SolidColorBrush.Color)' To='#3C3C3C' Duration='0:0:.14'/><ColorAnimation Storyboard.TargetName='Knob' Storyboard.TargetProperty='(Shape.Fill).(SolidColorBrush.Color)' To='#C0C0C0' Duration='0:0:.14'/></Storyboard></BeginStoryboard></Trigger.ExitActions></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
         <Style TargetType='ScrollBar'><Setter Property='Background' Value='#101010'/><Setter Property='Width' Value='9'/><Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ScrollBar'><Grid Background='{TemplateBinding Background}'><Track x:Name='PART_Track' IsDirectionReversed='True'><Track.DecreaseRepeatButton><RepeatButton Opacity='0' Command='ScrollBar.PageUpCommand'/></Track.DecreaseRepeatButton><Track.Thumb><Thumb><Thumb.Template><ControlTemplate TargetType='Thumb'><Border Margin='2' Background='#555555' CornerRadius='3'/></ControlTemplate></Thumb.Template></Thumb></Track.Thumb><Track.IncreaseRepeatButton><RepeatButton Opacity='0' Command='ScrollBar.PageDownCommand'/></Track.IncreaseRepeatButton></Track></Grid></ControlTemplate></Setter.Value></Setter></Style>
         <Style TargetType='Slider'><Setter Property='FocusVisualStyle' Value='{x:Null}'/><Setter Property='Height' Value='48'/><Setter Property='IsMoveToPointEnabled' Value='True'/><Setter Property='Template'><Setter.Value><ControlTemplate TargetType='Slider'><Grid VerticalAlignment='Center' Height='40'><Border Height='12' Background='#353535' CornerRadius='6'/><Track x:Name='PART_Track'><Track.DecreaseRepeatButton><RepeatButton Command='Slider.DecreaseLarge' BorderThickness='0' Height='12' Focusable='False'><RepeatButton.Template><ControlTemplate TargetType='RepeatButton'><Border x:Name='Fill' CornerRadius='6' Margin='0,0,-12,0'><Border.Background><LinearGradientBrush StartPoint='0,0' EndPoint='1,0'><GradientStop Color='#686868' Offset='0'/><GradientStop Color='White' Offset='1'/></LinearGradientBrush></Border.Background></Border><ControlTemplate.Triggers><Trigger Property='ActualWidth' Value='0'><Setter TargetName='Fill' Property='Visibility' Value='Hidden'/></Trigger></ControlTemplate.Triggers></ControlTemplate></RepeatButton.Template></RepeatButton></Track.DecreaseRepeatButton><Track.Thumb><Thumb Width='30' Height='40'><Thumb.Template><ControlTemplate TargetType='Thumb'><Ellipse x:Name='Knob' Width='27' Height='27' Fill='White'/>
 <ControlTemplate.Triggers>

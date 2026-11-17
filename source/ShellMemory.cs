@@ -64,6 +64,7 @@ namespace Lucent
             card.Children.Add(readingRow);card.Children.Add(memoryMeter);card.Children.Add(memoryAvailable);
             var clean=Action("Clean RAM",()=>{});
             clean.Style=(Style)Resources["PrimaryAction"];
+            cleanRamButton=clean;
 
 
             clean.Click+=async(sender,args)=>

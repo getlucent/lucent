@@ -12,6 +12,8 @@ namespace Lucent
     internal sealed class RadarOptions
     {
         public double Sensitivity=60;
+        // How strongly it shows over the game, 10 to 100 percent.
+        public double Opacity=100;
         public string Size="Medium",Place="Center";
         internal int Pixels {get{return Size=="Small"?170:Size=="Large"?320:240;}}
     }
@@ -77,7 +79,20 @@ namespace Lucent
 
     internal static class RadarRenderer
     {
-        // Draws the arcs for these levels (0 to 1 per sector) into a transparent picture of the given size.
+        // How many steps each direction's meter has, from the inside out.
+        internal const int Steps=6;
+        // One step of a direction's meter: a short piece of ring between two radii and two angles.
+        static GraphicsPath Piece(float middle,float from,float to,float start,float sweep)
+        {
+            var path=new GraphicsPath();
+            path.AddArc(middle-to,middle-to,to*2,to*2,start,sweep);
+            path.AddArc(middle-from,middle-from,from*2,from*2,start+sweep,-sweep);
+            path.CloseFigure();
+            return path;
+        }
+        // Draws the radar for these levels (0 to 1 per direction) into a transparent picture of the given size: a ring of eight short meters around an
+        // empty middle (the crosshair stays clear). A direction with sound shows its meter, filled from the inside out the louder it is; the steps
+        // are white, the outer ones amber and red, so a loud sound close by reads at a glance. Silence draws nothing at all.
         public static Bitmap Render(double[] levels,int size)
         {
             var bitmap=new Bitmap(size,size,PixelFormat.Format32bppPArgb);
@@ -85,25 +100,46 @@ namespace Lucent
             {
                 g.SmoothingMode=SmoothingMode.AntiAlias;
                 g.Clear(Color.Transparent);
-                float middle=size/2f,outer=size/2f-4,thickness=Math.Max(10f,size*.085f),inner=outer-thickness;
+                float middle=size/2f,outer=size/2f-4,thickness=size*.2f,inner=outer-thickness,gap=Math.Max(2f,size/80f);
+                float step=(thickness-gap*(Steps-1))/Steps;
+                double loudest=0;foreach(double l in levels)loudest=Math.Max(loudest,l);
+                if(loudest<.02)return bitmap;
+                // A thin circle inside the meters and a small mark for straight ahead, faint, only while something sounds.
+                int faint=(int)(18+50*Math.Min(1,loudest));
+                using(var pen=new Pen(Color.FromArgb(faint,255,255,255),1.2f))g.DrawEllipse(pen,middle-(inner-7),middle-(inner-7),(inner-7)*2,(inner-7)*2);
+                using(var brush=new SolidBrush(Color.FromArgb(faint+40,255,255,255)))
+                {
+                    float tip=middle-(inner-7)+3,half=Math.Max(3f,size/60f);
+                    g.FillPolygon(brush,new[]{new PointF(middle,tip-half*1.6f),new PointF(middle-half,tip+half*.4f),new PointF(middle+half,tip+half*.4f)});
+                }
                 for(int sector=0;sector<levels.Length;sector++)
                 {
                     double level=Math.Max(0,Math.Min(1,levels[sector]));
                     if(level<.02)continue;
-                    // Sector 0 is straight up; each covers 45 degrees with a small gap on each side.
-                    float start=-90+sector*45-22.5f+3f,sweep=45-6f;
-                    // A louder sound is brighter, warmer and reaches further in.
-                    float reach=thickness*(.55f+.45f*(float)level);
-                    var rect=new RectangleF(middle-outer,middle-outer,outer*2,outer*2);
-                    using(var path=new GraphicsPath())
+                    // Sector 0 is straight up; each covers 45 degrees with a gap on each side.
+                    float start=-90+sector*45-22.5f+4f,sweep=45-8f;
+                    int lit=Math.Max(1,(int)Math.Ceiling(level*Steps-.001));
+                    // One soft glow behind the lit part of the meter, in the color of its outermost lit step.
                     {
-                        path.AddArc(rect,start,sweep);
-                        var rectIn=new RectangleF(middle-(outer-reach),middle-(outer-reach),(outer-reach)*2,(outer-reach)*2);
-                        path.AddArc(rectIn,start+sweep,-sweep);
-                        path.CloseFigure();
-                        int alpha=(int)(70+185*level);
-                        var color=Color.FromArgb(alpha,255,(int)(255-150*level),(int)(255-195*level));
-                        using(var brush=new SolidBrush(color))g.FillPath(brush,path);
+                        Color top=lit>=Steps?Color.FromArgb(255,112,96):lit>=Steps-2?Color.FromArgb(255,196,98):Color.FromArgb(245,245,247);
+                        float spread=Math.Max(3f,size/45f);
+                        using(var halo=Piece(middle,inner-spread,inner+lit*(step+gap)-gap+spread,start-1.5f,sweep+3f))
+                        using(var brush=new SolidBrush(Color.FromArgb((int)(18+34*level),top)))g.FillPath(brush,halo);
+                    }
+                    for(int i=0;i<Steps;i++)
+                    {
+                        float from=inner+i*(step+gap),to=from+step;
+                        using(var path=Piece(middle,from,to,start,sweep))
+                        {
+                            if(i>=lit)
+                            {
+                                // The rest of the meter, faint, so its length reads.
+                                using(var brush=new SolidBrush(Color.FromArgb((int)(26+30*level),255,255,255)))g.FillPath(brush,path);
+                                continue;
+                            }
+                            Color ink=i>=Steps-1?Color.FromArgb(255,112,96):i>=Steps-3?Color.FromArgb(255,196,98):Color.FromArgb(245,245,247);
+                            using(var brush=new SolidBrush(Color.FromArgb((int)(150+105*level),ink)))g.FillPath(brush,path);
+                        }
                     }
                 }
             }
@@ -144,6 +180,8 @@ namespace Lucent
             base.WndProc(ref m);
         }
         // Shows this picture with its top left at the given place on screen.
+        // How see-through the whole radar is, 0 to 255.
+        public byte Alpha=255;
         public void Present(Bitmap picture,Point at)
         {
             if(!IsHandleCreated)CreateControl();
@@ -152,7 +190,7 @@ namespace Lucent
             {
                 old=SelectObject(memory,hbitmap);
                 var size=new Size32{W=picture.Width,H=picture.Height};var from=new Point32();var where=new Point32{X=at.X,Y=at.Y};
-                var blend=new Blend{Op=0,Flags=0,Alpha=255,Format=1};
+                var blend=new Blend{Op=0,Flags=0,Alpha=Alpha,Format=1};
                 UpdateLayeredWindow(Handle,screen,ref where,ref size,memory,ref from,0,ref blend,2);
             }
             finally
@@ -267,7 +305,8 @@ namespace Lucent
                         if(Math.Abs(next-shown[s])>.004)changed=true;
                         shown[s]=next;
                     }
-                    string key=now.Size+"|"+now.Place;
+                    string key=now.Size+"|"+now.Place+"|"+Math.Round(now.Opacity);
+                    overlay.Alpha=(byte)Math.Round(255*Math.Max(.1,Math.Min(1,now.Opacity/100)));
                     if(changed||!drawn||key!=drawnFor)
                     {
                         var rect=Target.Bounds;

@@ -27,7 +27,8 @@ namespace Lucent
     {
         FrameworkElement ResolutionPage()
         {
-            var stack=Page(TabTitle("Resolution"),"Resolution, refresh rate and scaling for each of your displays.");
+            var stack=new StackPanel {Margin=new Thickness(0,16,0,5)};
+            var title=Text(TabTitle("Resolution"),32,true);title.Margin=new Thickness(0,0,0,22);stack.Children.Add(Compactable(title,title));
             var select=new ComboBox {ItemsSource=displays,SelectedItem=selected,Margin=new Thickness(0,0,0,16),MinHeight=42,FontSize=14,FontWeight=FontWeights.SemiBold,ItemTemplate=Design.TextTemplate(null)};
             displaySelect=select;
             stack.Children.Add(select);
@@ -102,7 +103,7 @@ namespace Lucent
         // Sizes grouped by shape, favorites first and the display's own shape ahead of the rest.
         FrameworkElement ResolutionChoices(List<DisplayMode> modes,DisplayMode currentMode,Action refresh)
         {
-            var card=Section("Resolution","Pick a size. Your refresh rate and color depth stay the same.");
+            var card=Section("Resolution","");
             var sizes=modes.GroupBy(x=>new{x.Width,x.Height}).Select(g=>g.First()).ToList();
             var favorites=sizes.Where(m=>preferences.Favorites.Contains(m.Width+"x"+m.Height)).OrderByDescending(m=>m.Width*m.Height).ToList();
             string own=AspectName(currentMode.Width,currentMode.Height);
@@ -315,30 +316,62 @@ namespace Lucent
         }
         FrameworkElement BuildResolutionPair(List<DisplayMode> modes,DisplayMode currentMode,Action refresh)
         {
-            var pair=Section("Quick switch","Two sizes, one shortcut. Your refresh rate stays the same.");
+            var pair=Section("Quick switch","");
             var available=modes.Where(m=>m.Frequency==currentMode.Frequency&&m.BitsPerPixel==currentMode.BitsPerPixel)
                 .GroupBy(m=>new{m.Width,m.Height}).Select(g=>g.First()).OrderByDescending(m=>m.Width*m.Height).ToList();
-            var row=new StackPanel {Margin=new Thickness(0,6,0,8)};
-            var a=new ComboBox {ItemsSource=available,DisplayMemberPath="ResolutionText",SelectedItem=available.FirstOrDefault(m=>m.Width==preferences.PairAWidth&&m.Height==preferences.PairAHeight),MinHeight=44,FontSize=15,FontWeight=FontWeights.SemiBold};
-            var b=new ComboBox {ItemsSource=available,DisplayMemberPath="ResolutionText",SelectedItem=available.FirstOrDefault(m=>m.Width==preferences.PairBWidth&&m.Height==preferences.PairBHeight),MinHeight=44,FontSize=15,FontWeight=FontWeights.SemiBold};
+            var a=new ComboBox {ItemsSource=available,DisplayMemberPath="ResolutionText",SelectedItem=available.FirstOrDefault(m=>m.Width==preferences.PairAWidth&&m.Height==preferences.PairAHeight),MinHeight=40,FontSize=15,FontWeight=FontWeights.SemiBold};
+            var b=new ComboBox {ItemsSource=available,DisplayMemberPath="ResolutionText",SelectedItem=available.FirstOrDefault(m=>m.Width==preferences.PairBWidth&&m.Height==preferences.PairBHeight),MinHeight=40,FontSize=15,FontWeight=FontWeights.SemiBold};
             a.DisplayMemberPath=b.DisplayMemberPath="";a.ItemTemplate=b.ItemTemplate=Design.TextTemplate("ResolutionText");
-            var firstLabel=Text("FIRST",11,true);firstLabel.Foreground=Muted;
-            var secondLabel=Text("SECOND",11,true);secondLabel.Foreground=Muted;secondLabel.Margin=new Thickness(0,8,0,8);
-            row.Children.Add(firstLabel);row.Children.Add(a);row.Children.Add(secondLabel);row.Children.Add(b);            pair.Children.Add(row);
+            // The two sizes side by side, their names above them and a swap mark between the two boxes, level with them.
+            var sides=new Grid {Margin=new Thickness(0,8,0,14)};
+            sides.ColumnDefinitions.Add(new ColumnDefinition());sides.ColumnDefinitions.Add(new ColumnDefinition {Width=GridLength.Auto});sides.ColumnDefinitions.Add(new ColumnDefinition());
+            sides.RowDefinitions.Add(new RowDefinition {Height=GridLength.Auto});sides.RowDefinitions.Add(new RowDefinition {Height=GridLength.Auto});
+            // The size in use is marked with a small white check beside its name.
+            Func<FrameworkElement> inUse=()=>
+            {
+                var mark=new Grid {Width=16,Height=16,VerticalAlignment=VerticalAlignment.Center,ToolTip="In use"};
+                mark.Children.Add(new System.Windows.Shapes.Ellipse {Fill=new SolidColorBrush(Color.FromRgb(245,245,247))});
+                mark.Children.Add(new System.Windows.Shapes.Path {Data=Geometry.Parse("M4.6,8.3 L7,10.6 L11.4,5.6"),Stroke=Brushes.Black,StrokeThickness=1.8,StrokeStartLineCap=PenLineCap.Round,StrokeEndLineCap=PenLineCap.Round,StrokeLineJoin=PenLineJoin.Round});
+                return mark;
+            };
+            Func<string,FrameworkElement,int,DockPanel> head=(name,state,column)=>
+            {
+                var line=new DockPanel {Margin=new Thickness(2,0,2,7)};
+                DockPanel.SetDock(state,Dock.Right);line.Children.Add(state);
+                var label=Text(name,11,true);label.Foreground=Muted;label.VerticalAlignment=VerticalAlignment.Center;label.Margin=new Thickness(0);line.Children.Add(label);
+                Grid.SetColumn(line,column);sides.Children.Add(line);
+                return line;
+            };
+            var aState=inUse();var bState=inUse();
+            head("FIRST",aState,0);head("SECOND",bState,2);
+            Grid.SetRow(a,1);sides.Children.Add(a);
+            Grid.SetRow(b,1);Grid.SetColumn(b,2);sides.Children.Add(b);
+            var swap=Design.Icon("Swap",20);swap.Margin=new Thickness(12,0,12,0);swap.VerticalAlignment=VerticalAlignment.Center;swap.Opacity=.7;
+            Grid.SetRow(swap,1);Grid.SetColumn(swap,1);sides.Children.Add(swap);
+            pair.Children.Add(sides);
             var hint=Text("",13);hint.Foreground=Muted;
-            var actions=new StackPanel();pair.Children.Add(actions);
+            // The switch button on the left and the shortcut on the right, on one line, centered on each other.
+            var actions=new DockPanel();pair.Children.Add(actions);
             var toggle=Action("Switch resolution",()=>
             {
                 TogglePair();
                 refresh();
             });
-            toggle.Style=(Style)Resources["PrimaryAction"];
-            actions.Children.Add(toggle);
+            toggle.Style=(Style)Resources["PrimaryAction"];toggle.VerticalAlignment=VerticalAlignment.Center;toggle.Margin=new Thickness(0,0,16,0);
+            DockPanel.SetDock(toggle,Dock.Left);actions.Children.Add(toggle);
+            var shortcut=new StackPanel {VerticalAlignment=VerticalAlignment.Center};actions.Children.Add(shortcut);
             // The shortcut is set here, in a button, and stays the same one as in Settings.
             // This card is rebuilt when the displays change; the old button must not stay in the list of fields that follow the shortcut.
             List<Button> switchFields;
             if(shortcutFields.TryGetValue("Switch resolution",out switchFields)&&displaySwitchField!=null)switchFields.Remove(displaySwitchField);
-            BindRow(actions,"Switch resolution",()=>preferences.SwitchKey,v=>preferences.SwitchKey=v,TogglePair,"Shortcut");
+            BindRow(shortcut,"Switch resolution",()=>preferences.SwitchKey,v=>preferences.SwitchKey=v,TogglePair,"Shortcut");
+            if(shortcut.Children.Count>0)
+            {
+                var line=(DockPanel)shortcut.Children[0];line.Margin=new Thickness(0);
+                // The word sits on the button's middle line (its letters hang a little high on their own).
+                foreach(var child in line.Children){var word=child as TextBlock;if(word!=null)word.Margin=new Thickness(0,3,0,0);}
+                foreach(var child in line.Children){var key=child as Button;if(key!=null)key.Margin=new Thickness(0);}
+            }
             displaySwitchField=shortcutFields["Switch resolution"][shortcutFields["Switch resolution"].Count-1];
             pair.Children.Add(hint);
             Action update=()=>
@@ -346,9 +379,12 @@ namespace Lucent
                 var first=a.SelectedItem as DisplayMode;var second=b.SelectedItem as DisplayMode;
                 bool valid=first!=null&&second!=null&&(first.Width!=second.Width||first.Height!=second.Height);
                 toggle.IsEnabled=valid;
-                hint.Text=!valid?"Choose two different sizes supported at "+currentMode.Frequency+" Hz.":
-                    "Current  "+SizeLabel(currentMode)+"    ·    "+currentMode.Frequency+" Hz";
-                if(valid)toggle.Content="Switch to "+SizeLabel(currentMode.Width==first.Width&&currentMode.Height==first.Height?second:first);
+                hint.Text=valid?"":"Pick two different sizes.";
+                hint.Visibility=valid?Visibility.Collapsed:Visibility.Visible;
+                bool onFirst=first!=null&&currentMode.Width==first.Width&&currentMode.Height==first.Height;
+                bool onSecond=!onFirst&&second!=null&&currentMode.Width==second.Width&&currentMode.Height==second.Height;
+                aState.Visibility=onFirst?Visibility.Visible:Visibility.Hidden;bState.Visibility=onSecond?Visibility.Visible:Visibility.Hidden;
+                if(valid)toggle.Content="Switch to "+SizeLabel(onFirst?second:first);
             };
             a.SelectionChanged+=(s,e)=>
             {

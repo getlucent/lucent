@@ -81,7 +81,8 @@ namespace Lucent
                 Children.Add(strip);
             }
 
-            cover.Children.Add(Design.Icon("Music",96));
+            // With no cover (nothing playing, or a song without one), a record turns slowly in its place.
+            cover.Children.Add(new Viewbox {Child=EmptyArt.Record(200),Margin=new Thickness(28),Stretch=Stretch.Uniform});
             cover.Children.Add(Core.artwork);
             coverFrame.Child=cover;
             column.Children.Add(coverFrame);
@@ -135,6 +136,14 @@ namespace Lucent
             Volume.Margin=new Thickness(0);
             bottom.Children.Add(Volume);
             bottom.Children.Add(lyricsButton);
+            // Lyrics only, over the whole screen.
+            var fullButton=new Button {Content=Design.Icon("Fullscreen",17),ToolTip="Lyrics in full screen"};
+            PlayerCore.Frame(fullButton,30);
+            ((UIElement)fullButton.Content).Opacity=PlayerCore.IdleInk;
+            PlayerCore.Motion(fullButton,1.14,.86);
+            System.Windows.Automation.AutomationProperties.SetName(fullButton,"Lyrics in full screen");
+            fullButton.Click+=(s,e)=>{if(!testMode)FullscreenLyrics.Toggle(Window.GetWindow(this));};
+            bottom.Children.Add(fullButton);
             column.Children.Add(bottom);
             Children.Add(column);
             lyricsView.Seek=seconds=>{shownElapsed=-1;var ignored=Core.Seek(seconds);};

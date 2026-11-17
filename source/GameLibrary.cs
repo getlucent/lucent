@@ -24,13 +24,40 @@ namespace Lucent
     // reads inside a game; it only lists folders and file names, and later takes an icon from a program's file.
     internal static class GameLibrary
     {
-        static readonly Regex Junk=new Regex(@"(unins|uninst|crash|report|redist|vcredist|dxsetup|setup|installer|helper|updater|prereq|dotnet|vc_|easyanticheat|battleye|benchmark|editor|eac)",RegexOptions.IgnoreCase|RegexOptions.Compiled);
+        static readonly Regex Junk=new Regex(@"(unins|uninst|crash|report|redist|vcredist|dxsetup|setup|installer|helper|updater|prereq|dotnet|vc_|easyanticheat|battleye|benchmark|editor|eac|protected_game|anticheat|_be\.exe$)",RegexOptions.IgnoreCase|RegexOptions.Compiled);
+        // The small programs anti-cheat puts in front of a game (Easy Anti-Cheat's start_protected_game.exe, BattlEye's game_BE.exe): they carry the
+        // anti-cheat's own icon and close once the game is up, so they are never taken for the game.
+        internal static bool IsAntiCheatStarter(string executable)
+        {
+            string name=Path.GetFileName(executable??"");
+            return Regex.IsMatch(name,@"^(start_protected_game|easyanticheat.*|.*_be|beservice.*)\.exe$",RegexOptions.IgnoreCase);
+        }
+        // The game itself when this program only starts it: an anti-cheat starter, or a renamed one beside a Unity game (Rust's Rust.exe starts
+        // RustClient.exe, which sits next to its RustClient_Data folder). Otherwise the program as it is.
+        internal static string RealGame(string executable)
+        {
+            try
+            {
+                if(string.IsNullOrEmpty(executable)||!File.Exists(executable))return executable;
+                string folder=Path.GetDirectoryName(executable);
+                if(Directory.Exists(Path.Combine(folder,Path.GetFileNameWithoutExtension(executable)+"_Data")))return executable;
+                foreach(string data in Directory.EnumerateDirectories(folder,"*_Data"))
+                {
+                    string game=Path.Combine(folder,Path.GetFileName(data).Substring(0,Path.GetFileName(data).Length-5)+".exe");
+                    if(File.Exists(game)&&!Junk.IsMatch(Path.GetFileName(game)))return game;
+                }
+                if(IsAntiCheatStarter(executable)){string best=BestExecutable(folder);if(best!=null&&!IsAntiCheatStarter(best))return best;}
+            }
+            catch(Exception){}
+            return executable;
+        }
         // Finds every game the launchers know about. Slow on a big library, so callers run it off the interface thread.
         public static List<LibraryGame> Scan()
         {
             var found=new List<LibraryGame>();
             try{found.AddRange(Steam());}catch(Exception){}
             try{found.AddRange(Epic());}catch(Exception){}
+            try{found.AddRange(EpicFolders());}catch(Exception){}
             try{found.AddRange(Gog());}catch(Exception){}
             try{found.AddRange(Ubisoft());}catch(Exception){}
             try{found.AddRange(EaApp());}catch(Exception){}
@@ -88,6 +115,35 @@ namespace Lucent
                 string exe=Path.Combine(folder,relative.Replace('/','\\'));
                 string epicLaunch=ns is string&&catalogItem is string&&appName is string?"com.epicgames.launcher://apps/"+Uri.EscapeDataString((string)ns)+"%3A"+Uri.EscapeDataString((string)catalogItem)+"%3A"+Uri.EscapeDataString((string)appName)+"?action=launch&silent=true":null;
                 if(File.Exists(exe))yield return new LibraryGame {Name=title,Executable=exe,Store="Epic Games",Launch=epicLaunch};
+            }
+        }
+        // Epic games whose install record is missing (it happens: Fortnite installed with no record left in Epic's Manifests folder). Every game Epic installs
+        // keeps a ".egstore" folder of its own, so each folder like that in an "Epic Games" folder is a game. Its program is picked the usual way; Fortnite is started
+        // through the launcher by its well-known app name, others from their program file.
+        static IEnumerable<LibraryGame> EpicFolders()
+        {
+            var roots=new List<string>{Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),"Epic Games")};
+            foreach(var drive in DriveInfo.GetDrives())
+            {
+                try{if(drive.DriveType!=DriveType.Fixed||!drive.IsReady)continue;}catch(Exception){continue;}
+                roots.Add(Path.Combine(drive.RootDirectory.FullName,"Epic Games"));
+                roots.Add(Path.Combine(drive.RootDirectory.FullName,"Program Files","Epic Games"));
+                roots.Add(Path.Combine(drive.RootDirectory.FullName,"Games","Epic Games"));
+            }
+            foreach(string root in roots.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if(!Directory.Exists(root))continue;
+                string[] folders;try{folders=Directory.GetDirectories(root);}catch(Exception){continue;}
+                foreach(string folder in folders)
+                {
+                    string name=Path.GetFileName(folder);
+                    if(Regex.IsMatch(name,@"^(Launcher|DirectXRedist|GameInputRedist|.*Redist|Epic Online Services)$",RegexOptions.IgnoreCase))continue;
+                    if(!Directory.Exists(Path.Combine(folder,".egstore")))continue;
+                    string exe=BestExecutable(folder);
+                    if(exe==null)continue;
+                    string launch=string.Equals(name,"Fortnite",StringComparison.OrdinalIgnoreCase)?"com.epicgames.launcher://apps/Fortnite?action=launch&silent=true":null;
+                    yield return new LibraryGame {Name=name,Executable=exe,Store="Epic Games",Launch=launch};
+                }
             }
         }
         // ---- The other launchers. Each is found only from what it records on this PC (registry entries, install records, folders): nothing is started or opened.
@@ -275,7 +331,11 @@ namespace Lucent
                         string directory=inner.Length==0?place:Path.Combine(place,inner);
                         if(Directory.Exists(directory))foreach(string exe in Directory.EnumerateFiles(directory,"*.exe"))candidates.Add(new FileInfo(exe));
                     }
-                }                var best=candidates.Where(f=>!Junk.IsMatch(f.Name)).OrderByDescending(f=>f.Length).FirstOrDefault()??candidates.OrderByDescending(f=>f.Length).FirstOrDefault();
+                }
+                // A Unity game names its data folder after its program ("RustClient_Data" beside "RustClient.exe"): that program is the game, however small.
+                foreach(var file in candidates)
+                    if(!Junk.IsMatch(file.Name)&&Directory.Exists(Path.Combine(file.DirectoryName,Path.GetFileNameWithoutExtension(file.Name)+"_Data")))return file.FullName;
+                var best=candidates.Where(f=>!Junk.IsMatch(f.Name)).OrderByDescending(f=>f.Length).FirstOrDefault()??candidates.Where(f=>!IsAntiCheatStarter(f.FullName)).OrderByDescending(f=>f.Length).FirstOrDefault()??candidates.OrderByDescending(f=>f.Length).FirstOrDefault();
                 return best==null?null:best.FullName;
             }
             catch(Exception){return null;}
@@ -316,7 +376,9 @@ namespace Lucent
                 try
                 {
                     if(!File.Exists(executable))return (ImageSource)null;
-                    using(var icon=System.Drawing.Icon.ExtractAssociatedIcon(executable))
+                    // Saved before anti-cheat starters were skipped: the icon comes from the game beside it, not from the anti-cheat.
+                    string from=RealGame(executable)??executable;
+                    using(var icon=System.Drawing.Icon.ExtractAssociatedIcon(from))
                     {
                         var picture=Imaging.CreateBitmapSourceFromHIcon(icon.Handle,Int32Rect.Empty,BitmapSizeOptions.FromWidthAndHeight(64,64));
                         picture.Freeze();

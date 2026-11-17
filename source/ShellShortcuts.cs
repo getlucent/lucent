@@ -209,7 +209,7 @@ namespace Lucent
         void SendMedia(byte key){if(!TestMode)DesktopTools.Media(key);}
         void RegisterKeys()
         {
-            Register("Switch resolution",preferences.SwitchKey,TogglePair);
+            Register("Quick panel",preferences.PanelKey,ToggleQuickPanel);            Register("Switch resolution",preferences.SwitchKey,TogglePair);
             Register("Toggle crosshair",preferences.CrosshairKey,ToggleCrosshair);
             Register("Dark Boost toggle",preferences.DarkKey,DarkBindPressed);
             Register("Music mini player",preferences.MediaKey,MediaPopup);

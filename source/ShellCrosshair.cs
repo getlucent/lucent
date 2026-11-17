@@ -30,14 +30,13 @@ namespace Lucent
             // Building the controls reads values back into them; none of that is a change by the user.
             crosshairSyncing=true;
             var page=new StackPanel {Margin=new Thickness(0,16,0,5)};
-            page.Children.Add(Text("Crosshair",38,true));
-            var sub=Text("Build your own crosshair. The one on screen follows every change.",14);
-            sub.Foreground=Muted;sub.Margin=new Thickness(0,6,0,22);
-            page.Children.Add(sub);
+            var heading=Text("Crosshair",32,true);heading.Margin=new Thickness(0,0,0,22);
+            page.Children.Add(Compactable(heading,heading));
             // The preview and the saved crosshairs stay on the left; the folders that shape it, and the share codes, sit beside them.
             // On a narrow window everything stacks into one column.
             var left=new StackPanel();
             left.Children.Add(CrosshairPreviewCard());
+            left.Children.Add(CrosshairGalleryCard());
             left.Children.Add(CrosshairLibrary());
             var right=new StackPanel();
             right.Children.Add(CrosshairShapeCard());
@@ -100,9 +99,100 @@ namespace Lucent
         // A small picture of a look in a dark box, drawn without moving it off center.
         void ShowCrosshairPicture(Image picture,CrosshairSettings spec,int box)
         {
-            int side=CrosshairRenderer.Extent(spec)*2+1,zoom=Math.Max(1,Math.Min(3,box/side));
-            picture.Source=RenderCrosshairPreview(spec,side);
-            picture.Width=picture.Height=side*zoom;
+            int side=CrosshairRenderer.Extent(spec)*2+1;
+            var drawn=RenderCrosshairPreview(spec,side);
+            var source=drawn as BitmapSource;
+            if(source==null){picture.Source=drawn;int z=Math.Max(1,Math.Min(3,box/side));picture.Width=picture.Height=side*z;return;}
+            // Cut to the pixels that are drawn, so the picture is centered on what you see. Drawn around its aiming pixel, a shape an even number of
+            // pixels wide (a 4 pixel dot) sat half a pixel off, and enlarged three times that showed.
+            try
+            {
+                var pixels=new FormatConvertedBitmap(source,PixelFormats.Pbgra32,null,0);
+                int w=pixels.PixelWidth,h=pixels.PixelHeight;var data=new byte[w*h*4];pixels.CopyPixels(data,w*4,0);
+                int left=w,top=h,right=-1,bottom=-1;
+                for(int y=0;y<h;y++)for(int x=0;x<w;x++)if(data[(y*w+x)*4+3]>0){if(x<left)left=x;if(x>right)right=x;if(y<top)top=y;if(y>bottom)bottom=y;}
+                if(right>=left&&bottom>=top){var cut=new CroppedBitmap(pixels,new Int32Rect(left,top,right-left+1,bottom-top+1));cut.Freeze();source=cut;}
+            }
+            catch(Exception){}
+            int zoom=Math.Max(1,Math.Min(3,box/Math.Max(source.PixelWidth,source.PixelHeight)));
+            picture.Source=source;
+            picture.Width=source.PixelWidth*zoom;picture.Height=source.PixelHeight*zoom;
+        }
+        // The side of the dark box around a picture: about this size, a pixel more where needed so the room on each side is a whole number of pixels.
+        static double EvenSide(double about,double picture){return ((int)Math.Round(about-picture))%2==0?about:about+1;}
+        // Ready-made looks to try with one click, and a picture (PNG) of your own as the crosshair.
+        readonly List<KeyValuePair<Border,string>> galleryTiles=new List<KeyValuePair<Border,string>>();
+        FrameworkElement CrosshairGalleryCard()
+        {
+            galleryTiles.Clear();
+            var card=new StackPanel();
+            var hint=Text("Crosshairs the pros use. Click one to try it.",13);hint.Foreground=Muted;card.Children.Add(hint);
+            // Even columns that fill the card: all six in a row when they fit, otherwise three or two to a row, so none is left alone at the end.
+            var tiles=new System.Windows.Controls.Primitives.UniformGrid {Margin=new Thickness(-3,8,-3,4),Columns=6};
+            tiles.SizeChanged+=(s,e)=>{int count=Math.Max(1,tiles.Children.Count);int fit=Math.Max(1,(int)(e.NewSize.Width/78));int columns=fit>=count?count:fit>=3?3:2;if(tiles.Columns!=columns)tiles.Columns=columns;};
+            foreach(var style in CrosshairGallery.Looks)
+            {
+                var look=style;
+                var picture=PixelPicture();ShowCrosshairPicture(picture,look,44);
+                var box=new Border {Width=EvenSide(52,picture.Width),Height=EvenSide(52,picture.Height),CornerRadius=new CornerRadius(9),Background=new SolidColorBrush(Color.FromArgb(80,0,0,0)),Child=picture,HorizontalAlignment=HorizontalAlignment.Center};
+                var content=new StackPanel();content.Children.Add(box);
+                content.Children.Add(new TextBlock {Text=look.Name,FontSize=11,FontWeight=FontWeights.SemiBold,TextTrimming=TextTrimming.CharacterEllipsis,MaxWidth=72,HorizontalAlignment=HorizontalAlignment.Center,Margin=new Thickness(0,6,0,0)});
+                var pick=Action("",()=>
+                {
+                    // The style replaces the shape and colors; where you moved the crosshair to stays.
+                    var next=look.Copy();next.OffsetX=CrosshairLook.OffsetX;next.OffsetY=CrosshairLook.OffsetY;next.Opacity=CrosshairLook.Opacity;
+                    preferences.Crosshair=next;SyncCrosshairControls();CrosshairChanged(false);
+                    SetStatus("Trying "+look.Name);
+                });
+                pick.Content=content;pick.Style=(Style)Resources["PlainAction"];pick.Padding=new Thickness(6,8,6,6);pick.Margin=new Thickness(0);
+                // The whole tile is the button, with the crosshair and its name in the middle.
+                pick.HorizontalAlignment=HorizontalAlignment.Stretch;pick.HorizontalContentAlignment=HorizontalAlignment.Center;content.HorizontalAlignment=HorizontalAlignment.Center;
+                pick.Tag=look.Name;System.Windows.Automation.AutomationProperties.SetName(pick,"Try "+look.Name);
+                var tile=new Border {Margin=new Thickness(3,0,3,6),CornerRadius=new CornerRadius(10),Background=optionSurface,Child=pick};
+                galleryTiles.Add(new KeyValuePair<Border,string>(tile,look.Name));
+                tiles.Children.Add(tile);
+            }
+            card.Children.Add(tiles);
+            // A picture of your own: a PNG becomes the crosshair, drawn pixel for pixel at the size you pick.
+            var pictureRow=new WrapPanel {Margin=new Thickness(0,6,0,0)};
+            pictureRow.Children.Add(Action("Use a picture (PNG)…",ImportCrosshairPicture));
+            // The picture's overall size, any step from a quarter to four times its own pixels.
+            var sizes=CrosshairSlider("Size",25,400,()=>CrosshairLook.ImageScale,v=>CrosshairLook.ImageScale=v,"%");
+            var remove=Action("Remove picture",()=>{CrosshairLook.Image="";CrosshairLook.Name="Custom";CrosshairChanged(false);SetStatus("Back to the drawn crosshair");});
+            pictureRow.Children.Add(remove);
+            card.Children.Add(pictureRow);
+            var sizeLabel=Text("Picture",12,true);sizeLabel.Foreground=Muted;sizeLabel.Margin=new Thickness(0,8,0,0);
+            card.Children.Add(sizeLabel);card.Children.Add(sizes);
+            crosshairViews.Add(()=>
+            {
+                bool hasPicture=CrosshairLook.HasImage;
+                foreach(var tile in galleryTiles)tile.Key.Background=!hasPicture&&tile.Value==CrosshairLook.Name?selectionSurface:optionSurface;
+                remove.Visibility=sizes.Visibility=sizeLabel.Visibility=hasPicture?Visibility.Visible:Visibility.Collapsed;
+            });
+            return Folder("Try a style",card,true);
+        }
+        void ImportCrosshairPicture()
+        {
+            if(TestMode)return;
+            var open=new Microsoft.Win32.OpenFileDialog {Filter="PNG picture|*.png",Title="Choose a crosshair picture"};
+            if(open.ShowDialog()!=true)return;
+            try
+            {
+                int w,h;
+                using(var probe=new System.Drawing.Bitmap(open.FileName)){w=probe.Width;h=probe.Height;}
+                if(w>512||h>512){Message("Pick a picture up to 512 × 512 pixels. Crosshair pictures are usually small, like 64 × 64.");return;}
+                // A copy is kept in Lucent's folder, so the crosshair keeps working if the original file moves.
+                string folder=Path.Combine(StateStore.Folder,"crosshairs");Directory.CreateDirectory(folder);
+                byte[] bytes=File.ReadAllBytes(open.FileName);
+                string name;using(var sha=System.Security.Cryptography.SHA1.Create())name=BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-","").Substring(0,16).ToLowerInvariant()+".png";
+                string target=Path.Combine(folder,name);
+                if(!File.Exists(target))File.WriteAllBytes(target,bytes);
+                CrosshairLook.Image=target;CrosshairLook.ImageScale=100;
+                string title=Path.GetFileNameWithoutExtension(open.FileName);CrosshairLook.Name=title.Length>24?title.Substring(0,24):title;
+                CrosshairChanged(false);
+                SetStatus("Your picture is the crosshair now");
+            }
+            catch(Exception){Message("That picture could not be read. Use a PNG file.");}
         }
         FrameworkElement CrosshairLibrary()
         {
@@ -155,6 +245,7 @@ namespace Lucent
             System.Windows.Automation.AutomationProperties.SetName(codeBox,"Crosshair code");
             var copyButton=Action("Copy my code",()=>
             {
+                if(CrosshairLook.HasImage){SetStatus("A picture crosshair cannot be shared as a code. Send the PNG instead.");return;}
                 string code=CrosshairCode.Encode(CrosshairLook);
                 codeBox.Text=code;
                 if(TestMode)return;
@@ -195,7 +286,7 @@ namespace Lucent
                 var picture=PixelPicture();
                 var shown=item.Copy();shown.OffsetX=shown.OffsetY=0;
                 ShowCrosshairPicture(picture,shown,56);
-                var box=new Border {Width=64,Height=64,CornerRadius=new CornerRadius(9),Background=new SolidColorBrush(Color.FromArgb(80,0,0,0)),Child=picture,HorizontalAlignment=HorizontalAlignment.Center};
+                var box=new Border {Width=EvenSide(64,picture.Width),Height=EvenSide(64,picture.Height),CornerRadius=new CornerRadius(9),Background=new SolidColorBrush(Color.FromArgb(80,0,0,0)),Child=picture,HorizontalAlignment=HorizontalAlignment.Center};
                 var caption=new TextBlock {Text=item.Name,FontSize=12,FontWeight=FontWeights.SemiBold,TextTrimming=TextTrimming.CharacterEllipsis,HorizontalAlignment=HorizontalAlignment.Center,Margin=new Thickness(0,7,0,2)};
                 var delete=Action("Delete",()=>
                 {

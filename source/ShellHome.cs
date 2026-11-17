@@ -20,13 +20,19 @@ namespace Lucent
         MediaTrack ambientTrack;
         FrameworkElement HomePage()
         {
-            var stack=Page("Home","What is on right now, and the quickest ways to change it.");
-            stack.Children.Add(HomeEditBar());
+            // The title alone, with the small Customize button at its right.
+            var stack=new StackPanel {Margin=new Thickness(0,16,0,5)};
+            var head=new DockPanel {Margin=new Thickness(0,0,0,22)};
+            var bar=HomeEditBar();DockPanel.SetDock(bar,Dock.Right);bar.VerticalAlignment=VerticalAlignment.Center;
+            head.Children.Add(bar);
+            var homeTitle=Text("Home",32,true);
+            head.Children.Add(Compactable(homeTitle,homeTitle));Compactable(head);
+            stack.Children.Add(head);
             stack.Children.Add(HomeUpdateCard());
             // The cards flow in the order and widths you chose (Customize Home): half-width cards sit two to a row, full-width ones take a row.
             homeFlow=new HomeFlow();
             homeSlots.Clear();
-            var cards=new Dictionary<string,FrameworkElement>{{"display",HomeDisplayCard()},{"pc",HomePcCard()},{"playing",HomeNowPlaying()},{"shortcuts",HomeShortcuts()}};
+            var cards=new Dictionary<string,FrameworkElement>{{"now",HomeNowCard()},{"display",HomeDisplayCard()},{"pc",HomePcCard()},{"shortcuts",HomeShortcuts()},{"playtime",HomePlaytimeCard()}};
             foreach(var key in HomeLayoutText.Keys)homeSlots.Add(MakeHomeSlot(key,cards[key]));
             stack.Children.Add(homeFlow);
             ApplyHomeLayout();
@@ -40,18 +46,28 @@ namespace Lucent
         Button homeEditButton,homeResetButton;
         FrameworkElement HomeEditBar()
         {
-            var bar=new WrapPanel {Margin=new Thickness(0,-12,0,14)};
-            homeEditButton=Action("Customize Home",()=>SetHomeEditing(!homeEditing));
+            var bar=new StackPanel {Orientation=Orientation.Horizontal};
             homeResetButton=Action("Reset layout",ResetHomeLayout);
             homeResetButton.Visibility=Visibility.Collapsed;
+            homeEditButton=Action("",()=>SetHomeEditing(!homeEditing));
+            homeEditButton.ToolTip="Customize Home";
             System.Windows.Automation.AutomationProperties.SetName(homeEditButton,"Customize Home");
-            bar.Children.Add(homeEditButton);bar.Children.Add(homeResetButton);
+            ShowHomeEditButton(false);
+            bar.Children.Add(homeResetButton);bar.Children.Add(homeEditButton);
             return bar;
+        }
+        // An icon while Home is as it is; "Done" while it is being customized.
+        void ShowHomeEditButton(bool editing)
+        {
+            if(editing){homeEditButton.Content="Done";homeEditButton.Padding=new Thickness(14,8,14,8);homeEditButton.Width=double.NaN;return;}
+            var icon=Design.Icon("Customize",18);icon.HorizontalAlignment=HorizontalAlignment.Center;icon.VerticalAlignment=VerticalAlignment.Center;
+            homeEditButton.Content=icon;homeEditButton.Padding=new Thickness(0);homeEditButton.Width=38;homeEditButton.Height=36;homeEditButton.MinHeight=0;
+            homeEditButton.HorizontalContentAlignment=HorizontalAlignment.Center;
         }
         internal void SetHomeEditing(bool on)
         {
             homeEditing=on;
-            homeEditButton.Content=on?"Done":"Customize Home";
+            ShowHomeEditButton(on);
             homeResetButton.Visibility=on?Visibility.Visible:Visibility.Collapsed;
             if(homeFlow!=null)homeFlow.Editing=on;
             foreach(var slot in homeSlots)slot.ShowTools(on);
@@ -234,52 +250,6 @@ namespace Lucent
             });
             return card;
         }
-        FrameworkElement HomeNowPlaying()
-        {
-            var card=Section("Now playing","");
-            // The cover on the left, the track beside it.
-            var row=new Grid {Margin=new Thickness(0,6,0,12)};
-            row.ColumnDefinitions.Add(new ColumnDefinition {Width=GridLength.Auto});
-            row.ColumnDefinitions.Add(new ColumnDefinition());
-            var cover=new Grid {Width=92,Height=92,Background=new SolidColorBrush(Color.FromRgb(38,38,41)),Clip=new RectangleGeometry(new Rect(0,0,92,92),14,14),Margin=new Thickness(0,0,16,0)};
-            var placeholder=Design.Icon("Music",34);
-            placeholder.Opacity=.5;
-            var picture=new Image {Stretch=Stretch.UniformToFill};
-            RenderOptions.SetBitmapScalingMode(picture,BitmapScalingMode.HighQuality);
-            cover.Children.Add(placeholder);
-            cover.Children.Add(picture);
-            row.Children.Add(cover);
-            var labels=new StackPanel {VerticalAlignment=VerticalAlignment.Center};
-            var title=new TextBlock {FontSize=17,FontWeight=FontWeights.SemiBold,TextTrimming=TextTrimming.CharacterEllipsis};
-            var artist=new TextBlock {FontSize=13,Foreground=Muted,TextTrimming=TextTrimming.CharacterEllipsis,Margin=new Thickness(0,2,0,0)};
-            labels.Children.Add(title);
-            labels.Children.Add(artist);
-            Grid.SetColumn(labels,1);
-            row.Children.Add(labels);
-            card.Children.Add(row);
-            var open=Action("Open player",ToggleBigPlayer);
-            card.Children.Add(open);
-            byte[] shownArtwork=null;
-            homeCover=picture;
-            homeUpdaters.Add(()=>
-            {
-                var track=ambientTrack;
-                bool any=track!=null&&!string.IsNullOrEmpty(track.Title);
-                SetText(title,any?track.Title:"Nothing playing");
-                SetText(artist,any?(string.IsNullOrEmpty(track.Artist)?track.Source:track.Artist):"Play something in any app and it shows up here.");
-                open.Visibility=any?Visibility.Visible:Visibility.Collapsed;
-                // With nothing playing there is nothing to show, so the whole card steps aside.
-                card.Visibility=any?Visibility.Visible:Visibility.Collapsed;
-                // Decode the cover only when it changes. This runs every couple of seconds while media is detected.
-                byte[] artwork=any?track.Artwork:null;
-                if(MediaSession.SameArtwork(shownArtwork,artwork))return;
-                shownArtwork=artwork;
-                picture.Source=artwork==null?null:DecodeCover(artwork);
-                placeholder.Visibility=picture.Source==null?Visibility.Visible:Visibility.Collapsed;
-            });
-            return card;
-        }
-        Image homeCover;
         static BitmapSource DecodeCover(byte[] bytes)
         {
             try
@@ -325,18 +295,19 @@ namespace Lucent
     internal static class HomeLayoutText
     {
         internal sealed class Entry {public string Key;public bool Full,Hidden;}
-        internal static readonly string[] Keys={"display","playing","pc","shortcuts"};
+        internal static readonly string[] Keys={"now","display","pc","shortcuts","playtime"};
         internal static string Title(string key)
         {
             switch(key)
             {
                 case "display":return "Your display";
-                case "playing":return "Now playing";
+                case "now":return "Right now";
                 case "pc":return "Your PC";
+                case "playtime":return "Playtime";
                 default:return "Shortcuts";
             }
         }
-        static bool DefaultFull(string key){return false;}
+        static bool DefaultFull(string key){return key=="now";}
         // Anything unknown or repeated is dropped and anything missing is added back, so a damaged value can never lose a card.
         internal static List<Entry> Parse(string text)
         {
@@ -349,11 +320,18 @@ namespace Lucent
                 if(hidden)token=token.Substring(1);
                 string[] parts=token.Split(':');
                 string key=parts[0].Trim().ToLowerInvariant();
+                // "Now playing" became "Right now" (the game and the song): it keeps its place, and is shown again, wider.
+                if(key=="playing"){key="now";hidden=false;parts=new[]{key,"f"};}
                 if(Array.IndexOf(Keys,key)<0||result.Any(e=>e.Key==key))continue;
                 bool full=parts.Length>1?parts[1].Trim().ToLowerInvariant()=="f":DefaultFull(key);
                 result.Add(new Entry {Key=key,Full=full,Hidden=hidden});
             }
-            foreach(string key in Keys)if(!result.Any(e=>e.Key==key))result.Add(new Entry {Key=key,Full=DefaultFull(key)});
+            foreach(string key in Keys)if(!result.Any(e=>e.Key==key))
+            {
+                // A card that is new to a saved layout: Right now goes first, others at the end.
+                var entry=new Entry {Key=key,Full=DefaultFull(key)};
+                if(key=="now")result.Insert(0,entry);else result.Add(entry);
+            }
             return result;
         }
         internal static string Serialize(IEnumerable<Entry> entries){return string.Join(";",entries.Select(e=>(e.Hidden?"!":"")+e.Key+":"+(e.Full?"f":"h")));}

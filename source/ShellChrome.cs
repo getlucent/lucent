@@ -202,10 +202,40 @@ namespace Lucent
                 var icon=button.Content as UIElement;if(icon!=null){icon.BeginAnimation(OpacityProperty,null);icon.Opacity=active?((string)button.Tag=="Settings"?.72:1):.62;}
             }
             MoveTabPill(IsLoaded);
+            RefreshTabGlow();
+        }
+        // The icon of the page in view glows softly in the color of the song playing (lightened, so it shows on the dark strip); with no music, a faint
+        // white. Performance mode leaves it out.
+        System.Windows.Media.Effects.DropShadowEffect tabGlow;
+        UIElement glowingIcon;
+        internal void RefreshTabGlow()
+        {
+            UIElement target=null;
+            if(!preferences.PerformanceMode)
+                foreach(var button in navigationButtons)
+                    if((string)button.Tag==page&&(string)button.Tag!="Settings"&&!settingsOpen)
+                    {
+                        var row=button.Content as StackPanel;
+                        target=row!=null&&row.Children.Count>0?row.Children[0]:button.Content as UIElement;
+                    }
+            var track=ambientTrack;
+            bool song=track!=null&&preferences.MediaControls&&!string.IsNullOrEmpty(track.Title)&&(mediaAccent.R+mediaAccent.G+mediaAccent.B)>60;
+            Color color=song?Color.FromRgb((byte)(mediaAccent.R+(255-mediaAccent.R)*.35),(byte)(mediaAccent.G+(255-mediaAccent.G)*.35),(byte)(mediaAccent.B+(255-mediaAccent.B)*.35)):Colors.White;
+            double strength=song?.95:.45;
+            if(tabGlow==null)tabGlow=new System.Windows.Media.Effects.DropShadowEffect {ShadowDepth=0,BlurRadius=12,Opacity=0,RenderingBias=System.Windows.Media.Effects.RenderingBias.Performance};
+            if(!ReferenceEquals(target,glowingIcon))
+            {
+                if(glowingIcon!=null)glowingIcon.Effect=null;
+                glowingIcon=target;
+                if(target!=null){target.Effect=tabGlow;tabGlow.Opacity=0;}
+            }
+            if(target==null)return;
+            tabGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.ColorProperty,new ColorAnimation(color,TimeSpan.FromMilliseconds(Design.Instant?0:500)));
+            tabGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty,new DoubleAnimation(strength,TimeSpan.FromMilliseconds(Design.Instant?0:320)));
         }
         void BuildModernBody()
         {
-            var body=new DockPanel {Margin=new Thickness(16,8,16,14)};Grid.SetColumn(body,1);workspace.Children.Add(body);
+            var body=Compactable(new DockPanel {Margin=new Thickness(16,8,16,14)});Grid.SetColumn(body,1);workspace.Children.Add(body);
             var top=new DockPanel {Height=42,LastChildFill=true,Margin=new Thickness(0,0,0,4)};
             DockPanel.SetDock(top,Dock.Top);
             body.Children.Add(top);
@@ -274,6 +304,7 @@ namespace Lucent
             closePlayer.ToolTip="Close player";
             // Looking up lyrics sends the song to a public lyrics service, so it stays off until switched on, and the choice is remembered.
             BigPlayerView.LyricsEnabled=()=>preferences.ShowLyrics;
+            LyricsView.WordByWord=()=>preferences.WordLyrics;
             ArtistPictures.Enabled=()=>preferences.ArtistPictures;
             BigPlayerView.PerformanceMode=()=>preferences.PerformanceMode;
             BigPlayerView.LyricsChanged=on=>{preferences.ShowLyrics=on;saveTimer.Stop();saveTimer.Start();};
@@ -677,6 +708,7 @@ namespace Lucent
         {
             // Surfaces are plain white veils, so the backdrop alone carries the color.
             Color accent=Adaptive?customBackgroundLoaded&&preferences.Artwork?animatedBackground.AccentColor:mediaAccent:Color.FromRgb(46,46,48);
+            RefreshTabGlow();
             double strength=Math.Max(0,Math.Min(1,preferences.ThemeIntensity));
             bool colored=Adaptive&&(paletteArtwork!=null||customBackgroundLoaded||mediaAccent!=Color.FromRgb(46,46,48));
             colorSync.Enabled=!TestMode&&!preferences.PerformanceMode&&!snapColors;

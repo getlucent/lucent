@@ -233,7 +233,11 @@ namespace Lucent
             lyricsButton.Click+=(s,e)=>ToggleLyrics();
             var more=IconButton("Settings","Settings",17,32);
             more.Click+=(s,e)=>ShowAppSettings();
-            right.Children.Add(lyricsButton);right.Children.Add(more);
+            // Lyrics only, over the whole screen.
+            var fullButton=IconButton("Fullscreen","Lyrics in full screen",16,32);
+            fullButton.ToolTip="Lyrics in full screen";
+            fullButton.Click+=(s,e)=>FullscreenLyrics.Toggle(this);
+            right.Children.Add(lyricsButton);right.Children.Add(fullButton);right.Children.Add(more);
             Grid.SetColumn(right,2);controls.Children.Add(right);
             Grid.SetRow(controls,3);page.Children.Add(controls);
             ShowLyricsButton();

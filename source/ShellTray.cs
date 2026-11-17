@@ -41,8 +41,9 @@ namespace Lucent
         internal int Hot {get{return hot;}}
         internal bool Chosen {get{return chosen;}}
 
-        public TrayPopup(string status,IEnumerable<TrayEntry> entries)
+        public TrayPopup(string status,IEnumerable<TrayEntry> entries,FrameworkElement quick=null,ResourceDictionary styles=null)
         {
+            if(styles!=null)Resources.MergedDictionaries.Add(styles);
             WindowStyle=WindowStyle.None;AllowsTransparency=true;Background=Brushes.Transparent;ShowInTaskbar=false;Topmost=true;
             ResizeMode=ResizeMode.NoResize;SizeToContent=SizeToContent.WidthAndHeight;ShowActivated=true;
             Foreground=Brushes.White;FontFamily=Design.Font;FontSize=14;FontWeight=FontWeights.Medium;UseLayoutRounding=true;
@@ -61,6 +62,8 @@ namespace Lucent
             Grid.SetColumn(titles,1);head.Children.Add(titles);
             list.Children.Add(head);
             list.Children.Add(Rule());
+            // Quick settings (vibrance, the switches, the song) above the places to go.
+            if(quick!=null){list.Children.Add(quick);list.Children.Add(Rule());}
             foreach(var entry in entries)
             {
                 if(entry.Separator){list.Children.Add(Rule());continue;}
@@ -135,7 +138,18 @@ namespace Lucent
             // After the menu is gone, so what it opens is not pulled behind it.
             if(run!=null)Dispatcher.BeginInvoke(new Action(run));
         }
-        void Dismiss(){if(!chosen&&IsVisible){chosen=true;Close();}}
+        void Dismiss(){if(!chosen&&IsVisible&&!keeping){chosen=true;Close();}}
+        // A quick setting runs while the menu stays open; whatever it opens (the crosshair's window) may take the focus for a moment, so the menu
+        // takes it back instead of closing.
+        bool keeping;
+        internal async void Keep(Action action)
+        {
+            keeping=true;
+            try{action();}catch(Exception){}
+            await System.Threading.Tasks.Task.Delay(250);
+            keeping=false;
+            if(IsVisible&&!chosen){Activate();Topmost=false;Topmost=true;}
+        }
         void OnKey(object sender,KeyEventArgs e)
         {
             if(e.Key==Key.Escape){Dismiss();e.Handled=true;}
@@ -199,10 +213,75 @@ namespace Lucent
         void ShowTrayMenu()
         {
             if(trayPopup!=null){try{trayPopup.Close();}catch(Exception){}trayPopup=null;}
-            var popup=new TrayPopup(CurrentModeText(),TrayEntries());
+            TrayPopup popup=null;
+            var quick=TrayQuickSettings(action=>{if(popup!=null)popup.Keep(action);else action();});
+            popup=new TrayPopup(CurrentModeText(),TrayEntries(),quick,Resources);
             trayPopup=popup;
             popup.Closed+=(s,e)=>{if(trayPopup==popup)trayPopup=null;};
             popup.ShowAt(Forms.Cursor.Position);
+        }
+        // The top of the tray menu: vibrance, three switches (crosshair, Dark Boost, zoom) and the song. They act at once and the menu stays open.
+        internal FrameworkElement TrayQuickSettings(Action<Action> keep)
+        {
+            var muted=new SolidColorBrush(Color.FromRgb(160,160,166));
+            var stack=new StackPanel {Margin=new Thickness(10,6,10,6)};
+            // Vibrance.
+            var head=new DockPanel();
+            var value=new TextBlock {FontSize=13,FontWeight=FontWeights.Bold,VerticalAlignment=VerticalAlignment.Center};
+            DockPanel.SetDock(value,Dock.Right);head.Children.Add(value);
+            head.Children.Add(new TextBlock {Text="Vibrance",FontSize=13,FontWeight=FontWeights.SemiBold,VerticalAlignment=VerticalAlignment.Center});
+            stack.Children.Add(head);
+            var vibrance=new Slider {Minimum=Look.MinimumVibrance,Maximum=Look.MaximumVibrance,Value=current.Saturation,SmallChange=5,LargeChange=25,IsMoveToPointEnabled=true,Height=30,Margin=new Thickness(0,2,0,4)};
+            System.Windows.Automation.AutomationProperties.SetName(vibrance,"Vibrance");
+            value.Text=Math.Round(vibrance.Value)+"%";
+            vibrance.ValueChanged+=(s,e)=>{value.Text=Math.Round(vibrance.Value)+"%";PanelSetVibrance(Math.Round(vibrance.Value));};
+            stack.Children.Add(vibrance);
+            // Three switches as tiles: lit while on.
+            var tiles=new System.Windows.Controls.Primitives.UniformGrid {Columns=3,Margin=new Thickness(-3,2,-3,4)};
+            Func<string,string,Func<bool>,Action,Border> tile=(icon,name,on,flip)=>
+            {
+                var face=new StackPanel {HorizontalAlignment=HorizontalAlignment.Center};
+                var symbol=Design.Icon(icon,18);symbol.HorizontalAlignment=HorizontalAlignment.Center;
+                face.Children.Add(symbol);
+                var label=new TextBlock {Text=name,FontSize=12,FontWeight=FontWeights.SemiBold,HorizontalAlignment=HorizontalAlignment.Center,Margin=new Thickness(0,5,0,0)};
+                face.Children.Add(label);
+                var box=new Border {CornerRadius=new CornerRadius(12),Padding=new Thickness(6,10,6,9),Margin=new Thickness(3),Cursor=Cursors.Hand,Child=face};
+                System.Windows.Automation.AutomationProperties.SetName(box,name);
+                Action paint=()=>{bool lit=on();box.Background=new SolidColorBrush(lit?Color.FromArgb(235,245,245,247):Color.FromArgb(18,255,255,255));Ink(symbol,lit?Brushes.Black:Brushes.White);label.Foreground=lit?Brushes.Black:Brushes.White;};
+                paint();
+                box.MouseLeftButtonUp+=(s,e)=>{e.Handled=true;keep(()=>{flip();paint();});};
+                return box;
+            };
+            tiles.Children.Add(tile("Crosshair","Crosshair",()=>crosshair!=null,ToggleCrosshair));
+            tiles.Children.Add(tile("Visual tools","Dark Boost",()=>current.DarkEnabled,ToggleDarkBoost));
+            tiles.Children.Add(tile("Search","Zoom",()=>zoomed,ToggleZoom));
+            stack.Children.Add(tiles);
+            // The song, with the three buttons; only while something plays and the media controls are on.
+            var track=PanelTrack;
+            if(track!=null&&!string.IsNullOrEmpty(track.Title))
+            {
+                var song=new DockPanel {Margin=new Thickness(0,4,0,0)};
+                var buttons=new StackPanel {Orientation=Orientation.Horizontal,VerticalAlignment=VerticalAlignment.Center};
+                Func<string,byte,Button> media=(icon,key)=>
+                {
+                    var b=new Button {Content=Design.Icon(icon,15),Width=32,Height=30,MinHeight=0,Padding=new Thickness(0),Margin=new Thickness(1,0,1,0),Background=Brushes.Transparent,BorderThickness=new Thickness(0),Cursor=Cursors.Hand};
+                    System.Windows.Automation.AutomationProperties.SetName(b,icon);
+                    b.Click+=(s,e)=>keep(()=>SendMedia(key));
+                    return b;
+                };
+                var playButton=media(track.Playing?"Pause":"Play",0xB3);
+                // The play button shows the other symbol at once (the music app takes a moment to say).
+                bool playing=track.Playing;
+                playButton.Click+=(s,e)=>{playing=!playing;playButton.Content=Design.Icon(playing?"Pause":"Play",15);};
+                buttons.Children.Add(media("Previous",0xB1));buttons.Children.Add(playButton);buttons.Children.Add(media("Next",0xB0));
+                DockPanel.SetDock(buttons,Dock.Right);song.Children.Add(buttons);
+                var words=new StackPanel {VerticalAlignment=VerticalAlignment.Center,Margin=new Thickness(0,0,8,0)};
+                words.Children.Add(new TextBlock {Text=track.Title,FontSize=13,FontWeight=FontWeights.SemiBold,TextTrimming=TextTrimming.CharacterEllipsis});
+                words.Children.Add(new TextBlock {Text=string.IsNullOrEmpty(track.Artist)?track.Source:track.Artist,FontSize=11,Foreground=muted,TextTrimming=TextTrimming.CharacterEllipsis});
+                song.Children.Add(words);
+                stack.Children.Add(song);
+            }
+            return stack;
         }
     }
 }

@@ -27,29 +27,30 @@ namespace Lucent
     {
         FrameworkElement ProfilesPage()
         {
-            var stack=Page(TabTitle("Profiles"),"Saved settings: your colors, Dark Boost, zoom, Color pop and the sound radar. Use one any time, or tie one to a game so it switches by itself.");
-            var about=Section("What a profile saves","A profile is a saved set of settings. Everything works on the desktop as usual; a profile just remembers it so you can bring it back with one click.");
-            about.Children.Add(Explain("Saved in a profile: your colors (red filter, dimming, vibrance and color vision with its strength), Dark Boost (on or off, mode, tint, strength, black level), the zoom level and sharpening, Color pop, and the sound radar."));
-            about.Children.Add(Explain("Use applies a profile now, Update look saves what you have now into it, and for a game, Play starts it through its launcher. A profile for a game switches on while that game runs and goes back to Desktop afterwards."));
-            about.Children.Add(Explain("It never starts, closes or changes a game by itself, and it leaves your display mode, crosshair and shortcuts alone."));
-            stack.Children.Add(about);
-            var save=Section("Save your settings","Name what you have set up right now and keep it as a profile, with or without a game.");
-            var saveRow=new DockPanel {Margin=new Thickness(0,6,0,2)};
-            var nameBox=new TextBox {MinHeight=36,VerticalContentAlignment=VerticalAlignment.Center,Margin=new Thickness(0,4,10,4),MaxLength=24,ToolTip="Name this profile"};
-            System.Windows.Automation.AutomationProperties.SetName(nameBox,"Profile name");
-            var saveButton=Action("Save current settings",()=>{SaveCurrentAsProfile(nameBox.Text);nameBox.Text="";});
-            DockPanel.SetDock(saveButton,Dock.Right);
-            saveRow.Children.Add(saveButton);saveRow.Children.Add(nameBox);
-            save.Children.Add(saveRow);
-            stack.Children.Add(save);
-            var auto=Section("Switch automatically","Lucent only changes colors. It never starts, closes or touches a game.");
-            auto.Children.Add(AutoToggle("Use a game's look while it is running"));
-            stack.Children.Add(auto);
+            // One line says what a profile is; the details sit where they are used.
+            var stack=Page(TabTitle("Profiles"),"A profile saves your colors, Dark Boost and zoom, and a game's profile can also set its resolution and crosshair.");
+            // Your games first, then your profiles, then switching, and saving your own settings last.
             stack.Children.Add(GameLibraryCard());
-            var looks=Section("Your profiles","Choose the profile to use right now. A new profile starts with the settings you have at the moment.");
+            var looks=Section("Your profiles","Choose the profile to use right now, or save what you have set up as a new one.");
             profilesList=new StackPanel();
             looks.Children.Add(profilesList);
+            // Saving the current settings as a new profile: one slim row under the list. The box shows a hint until you type a name.
+            var saveRow=new DockPanel {Margin=new Thickness(0,4,0,0)};
+            var nameBox=new TextBox {MinHeight=34,VerticalContentAlignment=VerticalAlignment.Center,Margin=new Thickness(0,0,8,0),MaxLength=24,ToolTip="Name the new profile (optional)"};
+            System.Windows.Automation.AutomationProperties.SetName(nameBox,"Profile name");
+            var nameHint=new TextBlock {Text="Name a new profile",FontSize=13,Foreground=Muted,IsHitTestVisible=false,VerticalAlignment=VerticalAlignment.Center,Margin=new Thickness(26,0,0,0)};   // where the typed text starts
+            nameBox.TextChanged+=(s,e)=>nameHint.Visibility=nameBox.Text.Length==0?Visibility.Visible:Visibility.Collapsed;
+            var nameField=new Grid();nameField.Children.Add(nameBox);nameField.Children.Add(nameHint);
+            var saveButton=Action("+  Save current settings",()=>{SaveCurrentAsProfile(nameBox.Text);nameBox.Text="";});
+            saveButton.Padding=new Thickness(14,7,14,7);saveButton.MinHeight=34;saveButton.Margin=new Thickness(0);
+            DockPanel.SetDock(saveButton,Dock.Right);
+            saveRow.Children.Add(saveButton);saveRow.Children.Add(nameField);
+            looks.Children.Add(saveRow);
             stack.Children.Add(looks);
+            var auto=Section("Switch automatically","While a game with a profile runs, its settings are used, and yours come back when it closes. Lucent never starts, closes or touches a game.");
+            auto.Children.Add(AutoToggle("Use a game's profile while it is running"));
+            auto.Children.Add(Toggle("Show a notice when a game's profile is applied",preferences.ProfileToast,v=>{preferences.ProfileToast=v;SaveSoon();}));
+            stack.Children.Add(auto);
             RefreshProfiles();
             return stack;
         }
@@ -62,14 +63,16 @@ namespace Lucent
         // The games found on this PC, each a tile with its icon. Picking one gives it its own look, which then appears under Your looks.
         List<LibraryGame> libraryGames=new List<LibraryGame>();
         WrapPanel libraryPanel;
-        TextBlock libraryNote;
+        TextBlock libraryNote;FrameworkElement libraryNoteRow;
         bool libraryScanned,libraryScanning;
         FrameworkElement GameLibraryCard()
         {
-            var card=Section("Your games","Found on this PC from Steam, Epic, GOG, EA, Ubisoft, Battle.net, Riot and Xbox. Click a game to give it its own look, starting from the colors you have now. Play starts it through its launcher where it can, otherwise from its program file.");
+            var card=Section("Your games","");
             libraryNote=Text("",13);
             libraryNote.Foreground=Muted;
-            card.Children.Add(libraryNote);
+            // While it looks, and when it finds nothing, a magnifier searches over a controller beside the words.
+            libraryNoteRow=EmptyRow(EmptyArt.Searching(54),libraryNote);
+            card.Children.Add(libraryNoteRow);
             libraryPanel=new WrapPanel {Margin=new Thickness(0,4,0,4)};
             card.Children.Add(libraryPanel);
             var actions=new WrapPanel();
@@ -100,7 +103,7 @@ namespace Lucent
             if(libraryPanel==null)return;
             libraryPanel.Children.Clear();tilePlay.Clear();
             libraryNote.Text=libraryScanning?"Looking for your games\u2026":libraryGames.Count==0?(libraryScanned?"No games found from Steam, Epic, GOG, EA, Ubisoft, Battle.net, Riot or Xbox. Use Add another game for anything else.":""):"";
-            libraryNote.Visibility=libraryNote.Text.Length==0?Visibility.Collapsed:Visibility.Visible;
+            libraryNoteRow.Visibility=libraryNote.Text.Length==0?Visibility.Collapsed:Visibility.Visible;
             foreach(var game in libraryGames)libraryPanel.Children.Add(LibraryTile(game));
         }
         FrameworkElement LibraryTile(LibraryGame game)
@@ -116,35 +119,29 @@ namespace Lucent
             face.Children.Add(picture);
             if(game.Picture!=null){picture.Source=game.Picture;placeholder.Visibility=Visibility.Collapsed;}
             else if(!TestMode||ShowGameIcons)GameLibrary.LoadIcon(game.Executable,Dispatcher,source=>{picture.Source=source;placeholder.Visibility=Visibility.Collapsed;});
-            var content=new StackPanel {HorizontalAlignment=HorizontalAlignment.Center};
+            // The top of the tile only shows the game (it is not a button, so clicking it does not feel like starting the game).
+            // Under it, two clear buttons: one gives the game a profile (or opens its settings once it has one), one starts the game.
+            var content=new StackPanel {HorizontalAlignment=HorizontalAlignment.Center,Margin=new Thickness(6,12,6,8)};
             content.Children.Add(face);
             content.Children.Add(new TextBlock {Text=game.Name,FontSize=12,FontWeight=FontWeights.SemiBold,TextTrimming=TextTrimming.CharacterEllipsis,MaxWidth=104,HorizontalAlignment=HorizontalAlignment.Center,Margin=new Thickness(0,8,0,0)});
-            content.Children.Add(new TextBlock {Text=added?"\u2713  Has a look":game.Store,FontSize=11,Foreground=added?Brushes.White:Muted,HorizontalAlignment=HorizontalAlignment.Center,Margin=new Thickness(0,2,0,0)});
-            // The top of the tile gives the game its own look; the button under it starts the game.
-            var look=Action("",()=>AddLibraryGame(game));
-            look.Content=content;
-            // No glow of its own: the whole tile lights up as one piece (below), apart from the Play button.
-            look.Style=(Style)Resources["PlainAction"];look.HorizontalContentAlignment=HorizontalAlignment.Center;
-            look.Padding=new Thickness(6,10,6,6);look.Margin=new Thickness(0);look.Width=124;
-            look.Tag=game.Name;
-            System.Windows.Automation.AutomationProperties.SetName(look,game.Name);
+            content.Children.Add(new TextBlock {Text=game.Store,FontSize=11,Foreground=Muted,HorizontalAlignment=HorizontalAlignment.Center,Margin=new Thickness(0,2,0,0)});
+            var profileButton=Action(added?"\u2713  Profile":"+  Add profile",()=>
+            {
+                var existing=ProfileFor(game);
+                if(existing==null){AddLibraryGame(game);return;}
+                openProfileSettings.Add(existing.Name);RefreshProfiles();SetStatus("Game settings for "+existing.Name+" are open under Your profiles");
+            });
+            profileButton.Margin=new Thickness(8,0,8,6);profileButton.Padding=new Thickness(0,7,0,7);profileButton.MinHeight=0;profileButton.FontSize=12;
+            profileButton.HorizontalContentAlignment=HorizontalAlignment.Center;profileButton.HorizontalAlignment=HorizontalAlignment.Stretch;
+            System.Windows.Automation.AutomationProperties.SetName(profileButton,(added?"Profile for ":"Add profile for ")+game.Name);
             var play=Action("\u25B6  Play",()=>PlayGame(game.Launch,game.Executable,game.Name));
             tilePlay.Add(new PlayButton {Button=play,Executable=game.Executable});ShowPlayState(tilePlay[tilePlay.Count-1]);
             play.Margin=new Thickness(8,0,8,8);play.Padding=new Thickness(0,7,0,7);play.MinHeight=0;play.FontSize=12;play.HorizontalContentAlignment=HorizontalAlignment.Center;play.HorizontalAlignment=HorizontalAlignment.Stretch;
             System.Windows.Automation.AutomationProperties.SetName(play,"Play "+game.Name);
-            var wash=new Border {Background=new SolidColorBrush(Color.FromArgb(24,255,255,255)),CornerRadius=new CornerRadius(12),Opacity=0,IsHitTestVisible=false};
             var column=new StackPanel();
-            column.Children.Add(look);column.Children.Add(play);
-            var tile=new Grid();
-            tile.Children.Add(wash);tile.Children.Add(column);
-            var card=new Border {Width=124,Margin=new Thickness(0,0,8,8),CornerRadius=new CornerRadius(12),Background=added?selectionSurface:optionSurface,Child=tile,Tag=game.Name};
-            // The glow covers the whole tile except the Play button; over Play only Play glows.
-            Action<bool> light=on=>Design.Animate(wash,OpacityProperty,wash.Opacity,on?1:0,on?100:170);
-            card.MouseEnter+=(s,e)=>{if(!play.IsMouseOver)light(true);};
-            card.MouseLeave+=(s,e)=>light(false);
-            play.MouseEnter+=(s,e)=>light(false);
-            play.MouseLeave+=(s,e)=>{if(card.IsMouseOver)light(true);};
-            return card;
+            // A profile is added from the slot under Your profiles; the tile only plays the game.
+            column.Children.Add(content);column.Children.Add(play);
+            return new Border {Width=124,Margin=new Thickness(0,0,8,8),CornerRadius=new CornerRadius(12),Background=added?selectionSurface:optionSurface,Child=column,Tag=game.Name};
         }
         internal string lastLaunch;
         // Starts a game the way its launcher would. Lucent never closes or changes a game that is running.
@@ -239,14 +236,68 @@ namespace Lucent
             profilesList.Children.Clear();rowPlay.Clear();
             profilesList.Children.Add(ProfileRow("Desktop","Your normal look, used whenever no game is running",null));
             foreach(var saved in preferences.Profiles.ToArray())profilesList.Children.Add(ProfileRow(saved.Name,string.IsNullOrEmpty(saved.Executable)?"Saved settings, not tied to a game":Path.GetFileName(saved.Executable),saved));
-            if(preferences.Profiles.Count==0)
+            // Always last in the list: a button to add a game's profile (another one below each one added).
             {
-                var hint=Text("No profiles yet. Set things up on the Color and Vision tabs, then save them above, or add a game here and Lucent will use its profile whenever the game is running.",13);
-                hint.Foreground=Muted;
-                hint.Margin=new Thickness(2,4,0,10);
-                profilesList.Children.Add(hint);
+                // A slot the shape of a profile row, with a plus.
+                var slot=new Grid {Margin=new Thickness(0,0,0,8),MinHeight=64};
+                slot.Children.Add(new Border {CornerRadius=new CornerRadius(14),BorderBrush=new SolidColorBrush(Color.FromArgb(46,255,255,255)),BorderThickness=new Thickness(1)});
+                var line=new DockPanel {Margin=new Thickness(14,12,14,12)};
+                var plus=new Grid {Width=40,Height=40,Margin=new Thickness(0,0,14,0),VerticalAlignment=VerticalAlignment.Center};
+                plus.Children.Add(new System.Windows.Shapes.Ellipse {Fill=new SolidColorBrush(Color.FromArgb(18,255,255,255))});
+                var mark=new System.Windows.Shapes.Path {Data=Geometry.Parse("M12,6 L12,18 M6,12 L18,12"),Stroke=new SolidColorBrush(Color.FromArgb(200,255,255,255)),StrokeThickness=1.8,StrokeStartLineCap=PenLineCap.Round,StrokeEndLineCap=PenLineCap.Round,Width=16,Height=16,Stretch=Stretch.Uniform,HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center};
+                plus.Children.Add(mark);
+                DockPanel.SetDock(plus,Dock.Left);line.Children.Add(plus);
+                var words=new StackPanel {VerticalAlignment=VerticalAlignment.Center};
+                words.Children.Add(new TextBlock {Text="Add game profile",FontSize=14,FontWeight=FontWeights.SemiBold});
+                line.Children.Add(words);
+                slot.Children.Add(line);
+                // The whole slot is a button: it lights under the pointer and opens the list of your games.
+                slot.Background=new SolidColorBrush(Color.FromArgb(0,255,255,255));slot.Cursor=System.Windows.Input.Cursors.Hand;
+                slot.MouseEnter+=(s,e)=>((SolidColorBrush)slot.Background).Color=Color.FromArgb(14,255,255,255);
+                slot.MouseLeave+=(s,e)=>((SolidColorBrush)slot.Background).Color=Color.FromArgb(0,255,255,255);
+                slot.MouseLeftButtonUp+=(s,e)=>{e.Handled=true;PickGameForProfile(slot);};
+                System.Windows.Automation.AutomationProperties.SetName(slot,"Add a game profile");
+                profilesList.Children.Add(slot);
             }
             ShowLibrary();
+        }
+        // A list under the empty slot: your games without a profile, with their icons. Picking one gives it a profile (as Add profile on its tile does);
+        // "Another game" opens the file picker for anything else.
+        void PickGameForProfile(FrameworkElement under)
+        {
+            if(!libraryScanned)ScanGames(false);
+            var rows=new StackPanel {Margin=new Thickness(6)};
+            var popup=new System.Windows.Controls.Primitives.Popup {PlacementTarget=under,Placement=System.Windows.Controls.Primitives.PlacementMode.Bottom,StaysOpen=false,AllowsTransparency=true,PopupAnimation=System.Windows.Controls.Primitives.PopupAnimation.Fade,VerticalOffset=6};
+            Func<FrameworkElement,string,Action,Border> row=(face,title,run)=>
+            {
+                var dock=new DockPanel();
+                face.Margin=new Thickness(0,0,12,0);face.VerticalAlignment=VerticalAlignment.Center;DockPanel.SetDock(face,Dock.Left);dock.Children.Add(face);
+                dock.Children.Add(new TextBlock {Text=title,FontSize=14,FontWeight=FontWeights.SemiBold,VerticalAlignment=VerticalAlignment.Center,TextTrimming=TextTrimming.CharacterEllipsis});
+                var item=new Border {CornerRadius=new CornerRadius(10),Padding=new Thickness(10,8,10,8),Background=new SolidColorBrush(Color.FromArgb(0,255,255,255)),Cursor=System.Windows.Input.Cursors.Hand,Child=dock};
+                item.MouseEnter+=(s,e)=>((SolidColorBrush)item.Background).Color=Color.FromArgb(24,255,255,255);
+                item.MouseLeave+=(s,e)=>((SolidColorBrush)item.Background).Color=Color.FromArgb(0,255,255,255);
+                item.MouseLeftButtonUp+=(s,e)=>{e.Handled=true;popup.IsOpen=false;run();};
+                System.Windows.Automation.AutomationProperties.SetName(item,title);
+                return item;
+            };
+            var games=libraryGames.Where(g=>ProfileFor(g)==null).ToList();
+            if(games.Count==0)
+                rows.Children.Add(new TextBlock {Text=libraryScanning?"Looking for your games…":"No games found on this PC.",FontSize=13,Foreground=Muted,Margin=new Thickness(10,8,10,8)});
+            foreach(var game in games)
+            {
+                var chosen=game;
+                var icon=new Image {Width=28,Height=28};RenderOptions.SetBitmapScalingMode(icon,BitmapScalingMode.HighQuality);
+                var face=new Grid {Width=28,Height=28};var mark=Design.Icon("Profiles",18);face.Children.Add(mark);face.Children.Add(icon);
+                if(!TestMode||ShowGameIcons)GameLibrary.LoadIcon(chosen.Executable,Dispatcher,source=>{icon.Source=source;mark.Visibility=Visibility.Collapsed;});
+                rows.Children.Add(row(face,chosen.Name,()=>AddLibraryGame(chosen)));
+            }
+            var other=Design.Icon("Search",18);
+            rows.Children.Add(row(new Grid {Width=28,Height=28,Children={other}},"Another game…",AddGame));
+            var card=new Border {Background=new SolidColorBrush(Color.FromRgb(28,28,31)),BorderBrush=new SolidColorBrush(Color.FromArgb(40,255,255,255)),BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(14),
+                Width=Math.Max(260,Math.Min(420,under.ActualWidth)),Child=new ScrollViewer {MaxHeight=340,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Content=rows},
+                Effect=new System.Windows.Media.Effects.DropShadowEffect {BlurRadius=24,ShadowDepth=6,Opacity=.5,Color=Colors.Black}};
+            popup.Child=new Border {Padding=new Thickness(0,0,16,16),Child=card};
+            popup.IsOpen=true;
         }
         // One look: who it is for, whether it is the one in use, and the few things you can do with it.
         FrameworkElement ProfileRow(string name,string detail,GameProfile profile)
@@ -300,6 +351,19 @@ namespace Lucent
                     System.Windows.Automation.AutomationProperties.SetName(playRow,"Play "+profile.Name);
                     actions.Children.Add(playRow);
                 }
+                if(!string.IsNullOrEmpty(profile.Executable))
+                {
+                    // Opens the game's own settings (resolution and crosshair) under the row.
+                    bool open=openProfileSettings.Contains(profile.Name);
+                    var more=Action(open?"Done":"Game settings",()=>
+                    {
+                        if(!openProfileSettings.Remove(profile.Name))openProfileSettings.Add(profile.Name);
+                        RefreshProfiles();
+                    });
+                    more.Padding=new Thickness(14,7,14,7);more.MinHeight=0;more.Margin=new Thickness(0,0,6,0);
+                    System.Windows.Automation.AutomationProperties.SetName(more,"Game settings for "+profile.Name);
+                    actions.Children.Add(more);
+                }
                 var update=Action("Update look",()=>
                 {
                     profile.Look=current.Copy();
@@ -323,7 +387,83 @@ namespace Lucent
                 System.Windows.Automation.AutomationProperties.SetName(remove,"Remove "+profile.Name);
                 actions.Children.Add(remove);
             }
-            return new Border {Background=active?selectionSurface:optionSurface,CornerRadius=new CornerRadius(14),Padding=new Thickness(14,12,12,12),Margin=new Thickness(0,0,0,8),Child=row};
+            UIElement body=row;
+            if(profile!=null&&!string.IsNullOrEmpty(profile.Executable)&&openProfileSettings.Contains(profile.Name))
+            {
+                var both=new StackPanel();both.Children.Add(row);both.Children.Add(GameSettingsPanel(profile));body=both;
+            }
+            return new Border {Background=active?selectionSurface:optionSurface,CornerRadius=new CornerRadius(14),Padding=new Thickness(14,12,12,12),Margin=new Thickness(0,0,0,8),Child=body};
+        }
+        readonly HashSet<string> openProfileSettings=new HashSet<string>();
+        // The parts of a look that are not neutral, in words: "Vibrance 150%", "Dark Boost 60%, Smart shadows", "Color pop: Red".
+        internal static List<string> LookChanges(Look look)
+        {
+            var list=new List<string>();
+            Func<double,string> pct=v=>Math.Round(v).ToString(System.Globalization.CultureInfo.InvariantCulture)+"%";
+            if(look.Saturation>Look.MinimumVibrance+.5)list.Add("Vibrance "+pct(look.Saturation));
+            if(look.Red>.5)list.Add("Red filter "+pct(look.Red));
+            if(look.Dim>.5)list.Add("Screen dim "+pct(look.Dim));
+            string vision=StateStore.CanonicalVision(look.Vision);
+            if(vision!="Normal")list.Add(vision+(look.VisionStrength<99.5?" "+pct(look.VisionStrength):""));
+            if(look.DarkEnabled)list.Add("Dark Boost "+pct(look.DarkStrength)+(look.DarkColor!="Green"?", "+look.DarkColor:""));
+            if(look.PopColor!="Off")list.Add("Color pop: "+look.PopColor);
+            if(look.RadarOn)list.Add("Sound radar");
+            return list;
+        }
+        // A game's own settings: the resolution of the main display and a crosshair, each used only while the game runs.
+        FrameworkElement GameSettingsPanel(GameProfile profile)
+        {
+            var panel=new StackPanel {Margin=new Thickness(54,12,0,2)};
+            // What the profile's look changes, only what differs from neutral (100% vibrance and the like is left out).
+            var changed=LookChanges(profile.Look);
+            var looksLine=Text(changed.Count==0?"Colors: neutral, nothing changed":"Colors: "+string.Join("  ·  ",changed.ToArray()),13,true);
+            looksLine.Margin=new Thickness(0,0,0,2);panel.Children.Add(looksLine);
+            var hint=Text("Used while "+profile.Name+" runs, and put back when it closes. Update look saves what you have now.",12);
+            hint.Foreground=Muted;panel.Children.Add(hint);
+            // Resolution: the sizes the main display supports at its current refresh rate.
+            var primary=DisplayService.GetDisplays().FirstOrDefault(d=>d.IsPrimary);
+            var now=primary==null||TestMode?null:DisplayService.GetCurrentMode(primary.DeviceName);
+            var sizes=new List<string>();
+            if(now!=null)sizes=DisplayService.GetModes(primary.DeviceName).Where(m=>m.Frequency==now.Frequency&&m.BitsPerPixel==now.BitsPerPixel)
+                .GroupBy(m=>new{m.Width,m.Height}).Select(g=>g.First()).OrderByDescending(m=>m.Width*m.Height).Select(m=>m.Width+" × "+m.Height).ToList();
+            string chosen=profile.ResolutionWidth>0?profile.ResolutionWidth+" × "+profile.ResolutionHeight:(now!=null?now.Width+" × "+now.Height:"");
+            if(chosen.Length>0&&!sizes.Contains(chosen))sizes.Insert(0,chosen);
+            var size=new ComboBox {ItemsSource=sizes,SelectedItem=chosen,MinHeight=36,Width=170,HorizontalAlignment=HorizontalAlignment.Left,FontSize=13,FontWeight=FontWeights.SemiBold,ItemTemplate=Design.TextTemplate(null),IsEnabled=profile.UseResolution,Margin=new Thickness(0,0,0,6)};
+            System.Windows.Automation.AutomationProperties.SetName(size,"Resolution for "+profile.Name);
+            Action<string> keepSize=text=>
+            {
+                int w,h;var parts=(text??"").Split('×');
+                if(parts.Length==2&&int.TryParse(parts[0].Trim(),out w)&&int.TryParse(parts[1].Trim(),out h)){profile.ResolutionWidth=w;profile.ResolutionHeight=h;SaveSoon();}
+            };
+            size.SelectionChanged+=(s,e)=>keepSize(size.SelectedItem as string);
+            panel.Children.Add(Toggle("Set the resolution",profile.UseResolution,v=>
+            {
+                profile.UseResolution=v;size.IsEnabled=v;
+                if(v&&profile.ResolutionWidth==0)keepSize(size.SelectedItem as string);
+                SaveSoon();
+            }));
+            panel.Children.Add(size);
+            // Crosshair: a copy of a crosshair kept with the game, shown or hidden while it runs.
+            var picture=PixelPicture();
+            var pictureBox=new Border {Width=56,Height=56,CornerRadius=new CornerRadius(9),Background=new SolidColorBrush(Color.FromArgb(80,0,0,0)),Child=picture,Margin=new Thickness(0,0,12,0),VerticalAlignment=VerticalAlignment.Center};
+            Action showPicture=()=>{var spec=(profile.Crosshair??CrosshairLook).Copy();spec.OffsetX=spec.OffsetY=0;ShowCrosshairPicture(picture,spec,48);};
+            showPicture();
+            var crossRow=new StackPanel {Orientation=Orientation.Horizontal,Margin=new Thickness(0,0,0,4),IsEnabled=profile.UseCrosshair};
+            crossRow.Children.Add(pictureBox);
+            var take=Action("Use my current crosshair",()=>{profile.Crosshair=CrosshairLook.Copy();showPicture();SaveSoon();SetStatus(profile.Name+" will use this crosshair");});
+            take.VerticalAlignment=VerticalAlignment.Center;
+            crossRow.Children.Add(take);
+            var show=Toggle("Show the crosshair",profile.CrosshairOn,v=>{profile.CrosshairOn=v;SaveSoon();});
+            show.IsEnabled=profile.UseCrosshair;
+            panel.Children.Add(Toggle("Use a crosshair for this game",profile.UseCrosshair,v=>
+            {
+                profile.UseCrosshair=v;crossRow.IsEnabled=show.IsEnabled=v;
+                if(v&&profile.Crosshair==null){profile.Crosshair=CrosshairLook.Copy();showPicture();}
+                SaveSoon();
+            }));
+            panel.Children.Add(crossRow);
+            panel.Children.Add(show);
+            return panel;
         }
         string lastAutoProfile;
         // Auto-switch only reacts when a game starts or exits, so a profile picked by hand stays put in between.
@@ -339,10 +479,90 @@ namespace Lucent
                 string running=match==null?null:match.Executable;
                 if(running==lastAutoProfile)return;
                 lastAutoProfile=running;
+                // A game closed (or another took its place): what its profile changed goes back first.
+                RestoreAfterGame();
                 string name=match==null?"Desktop":match.Name;
                 if(name!=activeProfile)LoadLook(match==null?preferences.Desktop:match.Look,name);
+                if(match!=null)ApplyGameExtras(match);
             }
             finally{profilePolling=false;}
+        }
+        // ---- What a game's profile changes beyond the look, and how it is put back.
+        // Kept while the game runs: the main display's mode before the switch, and the crosshair (and whether it was shown) before it.
+        sealed class GameRestore{public string Device;public int Width,Height,SetWidth,SetHeight;public CrosshairSettings Crosshair;public bool CrosshairWasOn,CrosshairChanged;}
+        GameRestore gameRestore;
+        void ApplyGameExtras(GameProfile game)
+        {
+            var restore=new GameRestore();var applied=new List<string>();
+            if(game.UseResolution&&game.ResolutionWidth>0&&!TestMode)
+            {
+                var primary=DisplayService.GetDisplays().FirstOrDefault(d=>d.IsPrimary);
+                var before=primary==null?null:DisplayService.GetCurrentMode(primary.DeviceName);
+                if(before!=null&&(before.Width!=game.ResolutionWidth||before.Height!=game.ResolutionHeight))
+                {
+                    string problem=SetModeQuietly(primary.DeviceName,game.ResolutionWidth,game.ResolutionHeight);
+                    if(problem==null){restore.Device=primary.DeviceName;restore.Width=before.Width;restore.Height=before.Height;restore.SetWidth=game.ResolutionWidth;restore.SetHeight=game.ResolutionHeight;applied.Add(game.ResolutionWidth+" × "+game.ResolutionHeight);}
+                    else SetStatus(game.Name+": "+problem);
+                }
+                else if(before!=null)applied.Add(game.ResolutionWidth+" × "+game.ResolutionHeight);
+            }
+            if(game.UseCrosshair&&game.Crosshair!=null)
+            {
+                restore.Crosshair=preferences.Crosshair.Copy();restore.CrosshairWasOn=crosshair!=null;restore.CrosshairChanged=true;
+                SetCrosshair(game.Crosshair.Copy(),game.CrosshairOn);
+                applied.Add(game.CrosshairOn?"crosshair":"crosshair off");
+            }
+            if(current.DarkEnabled)applied.Add("Dark Boost");
+            if(current.Saturation>Look.MinimumVibrance+.5)applied.Add("vibrance "+Math.Round(current.Saturation)+"%");
+            gameRestore=restore;
+            if(preferences.ProfileToast&&!TestMode)GameToast.Show("Applied: "+game.Name+" profile",string.Join("  ·  ",applied.ToArray()),game.Executable);
+        }
+        // Puts back what the last game's profile changed. The resolution goes back only if it is still the one the profile set (you may have changed it since).
+        void RestoreAfterGame()
+        {
+            var restore=gameRestore;gameRestore=null;
+            if(restore==null)return;
+            if(restore.Device!=null&&!TestMode)
+            {
+                var now=DisplayService.GetCurrentMode(restore.Device);
+                if(now!=null&&now.Width==restore.SetWidth&&now.Height==restore.SetHeight)SetModeQuietly(restore.Device,restore.Width,restore.Height);
+            }
+            if(restore.CrosshairChanged)SetCrosshair(restore.Crosshair,restore.CrosshairWasOn);
+        }
+        // A display size on one display, keeping its refresh rate and color depth, with no questions (it is put back later). Returns why it failed, or null.
+        string SetModeQuietly(string device,int width,int height)
+        {
+            var before=DisplayService.GetCurrentMode(device);if(before==null)return "the display is not available";
+            var target=DisplayService.FindResolutionOnlyMode(DisplayService.GetModes(device),width,height,before);
+            if(target==null)return width+" × "+height+" is not available at "+before.Frequency+" Hz";
+            using(var gate=new Mutex(false,LegacyNames.CustomTrialMutex))
+            {
+                bool owns=false;
+                try
+                {
+                    try{owns=gate.WaitOne(0);}catch(AbandonedMutexException){owns=true;}
+                    if(!owns)return "another display test is active";
+                    var result=DisplayService.Apply(target,before,false,false);
+                    if(!result.IsSuccess)return result.ErrorMessage;
+                    Count(c=>c.ResolutionSwitches++);
+                    RefreshDisplayViews();
+                    return null;
+                }
+                finally{if(owns)gate.ReleaseMutex();}
+            }
+        }
+        // Replaces the crosshair everywhere (the page's controls, the overlay) and shows or hides it.
+        void SetCrosshair(CrosshairSettings spec,bool on)
+        {
+            preferences.Crosshair=spec;
+            SyncCrosshairControls();RefreshCrosshairViews();
+            if(crosshair!=null)ConfigureCrosshair();
+            if(on!=(crosshair!=null))ToggleCrosshair();
+        }
+        // Closing the app while a game runs: the crosshair kept for the desktop is the one saved, not the game's.
+        void RestoreCrosshairBeforeSaving()
+        {
+            if(gameRestore!=null&&gameRestore.CrosshairChanged)preferences.Crosshair=gameRestore.Crosshair;
         }
         internal static GameProfile FindRunningProfile(IEnumerable<GameProfile> profiles)
         {
@@ -398,7 +618,6 @@ namespace Lucent
             foreach(var chip in popChoices)StyleChoice(chip,Equals(chip.Tag,current.PopColor));
             foreach(var chip in zoomSharpChoices)StyleChoice(chip,Equals(chip.Tag,current.ZoomSharp));
             if(zoomManualBox!=null)zoomManualBox.Visibility=current.ZoomSharp=="Manual"?Visibility.Visible:Visibility.Collapsed;
-            foreach(var chip in darkModeChoices)StyleChoice(chip,Equals(chip.Tag,current.DarkSmart?"Smart shadows":"Fast"));
             foreach(var chip in radarSizeChoices)StyleChoice(chip,Equals(chip.Tag,current.RadarSize));
             foreach(var chip in radarPlaceChoices)StyleChoice(chip,Equals(chip.Tag,current.RadarPlace));
         }
@@ -416,6 +635,7 @@ namespace Lucent
                 case "Sharpness":return current.ZoomSharpness;
                 case "Pop strength":return current.PopStrength;
                 case "Radar sensitivity":return current.RadarSensitivity;
+                case "Radar opacity":return current.RadarOpacity;
                 default:return 0;
             }
         }

@@ -87,7 +87,12 @@ namespace Lucent
             Children.Add(grain);
             SizeChanged+=(s,e)=>Fit();
             IsVisibleChanged+=(s,e)=>Run(IsVisible&&!holding&&active);
+            Action refresh=Refresh;
+            Loaded+=(s,e)=>{AloneChanged-=refresh;AloneChanged+=refresh;};
+            Unloaded+=(s,e)=>AloneChanged-=refresh;
         }
+        // (Keeping the moving layers as a smaller picture and stretching it was tried for the full-screen lyrics: the picture had to be made again at every
+        // frame and that held the screen to about 26 frames a second, where drawing the layers directly runs at the screen's full rate.)
         void Fit()
         {
             double side=Math.Max(ActualWidth,ActualHeight);
@@ -476,8 +481,14 @@ namespace Lucent
         // layer at its current value; resuming builds the clocks again and seeks them to those times, so the colors carry on from there.
         // (Pausing the clocks themselves left them drifting on some systems.)
         TimeSpan[] heldTimes;
+        // While one backdrop fills the whole screen (lyrics in full screen), the others are covered: they hold still so the screen has only one to draw.
+        static FlowingBackdrop alone;
+        static event Action AloneChanged;
+        internal static void SetAlone(FlowingBackdrop only){alone=only;var changed=AloneChanged;if(changed!=null)changed();}
+        void Refresh(){Run(IsVisible&&!holding&&active);}
         void Run(bool on)
         {
+            on=on&&(alone==null||ReferenceEquals(alone,this));
             if(on==running)return;
             running=on;
             if(on)

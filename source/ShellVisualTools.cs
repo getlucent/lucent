@@ -62,7 +62,7 @@ namespace Lucent
             stack.Children.Add(ResponsiveColumns(left,right,1.1));
 
             // ---- Zoom: how it starts (Hold or Toggle, and one bind), how it is sharpened, and a safe way to try it. The mouse wheel sets how far.
-            var zoom=Section("Zoom","Magnifies your primary display while you play, easing in and out. While zoom is on, the mouse wheel zooms in and out.");
+            var zoom=Section("Zoom","");
             left.Children.Add(zoom);
             var modeRow=new WrapPanel();
             foreach(string name in new[]{"Hold","Toggle"})
@@ -76,14 +76,11 @@ namespace Lucent
             }
             zoom.Children.Add(modeRow);
             AddZoomBind(zoom,"Zoom bind");
-            var how=Text("Hold zooms while the button is down. Toggle zooms on the first press and off on the next. The bind can be a key or a mouse button. Esc turns zoom off.",12);
+            var how=Text("A key or a mouse button. Esc turns zoom off.",12);
             how.Foreground=Muted;
             zoom.Children.Add(how);
             zoom.Children.Add(Step("Sharpening"));
             zoom.Children.Add(Choices(new[]{"Adaptive","Manual","Off"},()=>current.ZoomSharp,chosen=>current.ZoomSharp=chosen,zoomSharpChoices));
-            var sharpNote=Text("Adaptive sharpens edges more the further you zoom, and leaves noise and edges that are already sharp alone. Manual uses the slider. Off leaves the magnified picture soft.",12);
-            sharpNote.Foreground=Muted;
-            zoom.Children.Add(sharpNote);
             zoomManualBox=new StackPanel {Visibility=current.ZoomSharp=="Manual"?Visibility.Visible:Visibility.Collapsed};
             AddSlider(zoomManualBox,"Sharpness",0,100,current.ZoomSharpness,v=>current.ZoomSharpness=v,"%");
             zoom.Children.Add(zoomManualBox);
@@ -94,7 +91,7 @@ namespace Lucent
             tryNote.Foreground=Muted;
             zoom.Children.Add(tryNote);
             // ---- Sound radar
-            var radarBox=Section("Sound radar","Shows which side a loud sound is coming from, as glowing arcs around the middle of the screen. It reads only how loud each speaker is, from all sound your PC plays (game, voice chat, music). It does not hear or record anything.");
+            var radarBox=Section("Sound radar","Shows where loud sounds come from. It only reads how loud each speaker is.");
             left.Children.Add(radarBox);
             radarToggle=Toggle("Show where loud sounds come from",current.RadarOn,v=>
             {
@@ -104,6 +101,7 @@ namespace Lucent
             });
             radarBox.Children.Add(radarToggle);
             AddSlider(radarBox,"Radar sensitivity",0,100,current.RadarSensitivity,v=>current.RadarSensitivity=v,"%");
+            AddSlider(radarBox,"Radar opacity",10,100,current.RadarOpacity,v=>current.RadarOpacity=v,"%");
             radarBox.Children.Add(Step("Size"));
             radarBox.Children.Add(Choices(new[]{"Small","Medium","Large"},()=>current.RadarSize,chosen=>current.RadarSize=chosen,radarSizeChoices));
             radarBox.Children.Add(Step("Place"));
@@ -123,15 +121,7 @@ namespace Lucent
             var darkHint=Text("Tap the shortcut to switch Dark Boost on or off. Hold it and turn the mouse wheel to change the Strength (up for more).",12);
             darkHint.Foreground=Muted;
             box.Children.Add(darkHint);
-            box.Children.Add(Step("Mode"));
-            box.Children.Add(Choices(new[]{"Fast","Smart shadows"},()=>current.DarkSmart?"Smart shadows":"Fast",chosen=>
-            {
-                if(chosen=="Smart shadows"&&!preferences.RiskAccepted)throw new InvalidOperationException("Review the game-rule notice first.");
-                current.DarkSmart=chosen=="Smart shadows";
-            },darkModeChoices));
-            var modes=Text("Fast brightens through the display with no delay. Smart shadows open up the dark parts and leave bright areas alone, but draw through the GPU overlay and add about a frame of delay.",12);
-            modes.Foreground=Muted;
-            box.Children.Add(modes);
+            // Dark Boost always opens up the dark parts and leaves bright areas alone (Smart shadows, on the GPU overlay); the old Fast mode is gone.
             box.Children.Add(Step("Tint"));
             var colors=new WrapPanel();
             foreach(string name in new[]{"Green","Amber","Cyan","White"})
@@ -153,7 +143,7 @@ namespace Lucent
             AddSlider(box,"Black level",0,100,current.BlackLevel,v=>current.BlackLevel=v,"%");
 
             // ---- Color pop
-            var pop=Section("Color pop","Makes one color stand out and calms the rest, so a colored outline, item or ability is easier to spot. Drawn by the GPU overlay, like Smart shadows. It does not sharpen anything.");
+            var pop=Section("Color pop","Makes one color stand out, so outlines and abilities are easier to spot.");
             right.Children.Add(pop);
             var popRow=new WrapPanel();
             foreach(string name in new[]{"Off","Red","Orange","Yellow","Green","Cyan","Blue","Magenta"})

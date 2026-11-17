@@ -162,7 +162,7 @@ namespace Lucent
                     SetStatus(message);
                 }));
             }
-            radar.Apply(new RadarOptions {Sensitivity=current.RadarSensitivity,Size=current.RadarSize,Place=current.RadarPlace});
+            radar.Apply(new RadarOptions {Sensitivity=current.RadarSensitivity,Opacity=current.RadarOpacity,Size=current.RadarSize,Place=current.RadarPlace});
         }
         void UpdateGpuZoom(double zoomFactor){UpdateGpuZoom(new ZoomRequest {Zoom=zoomFactor});}
         void UpdateGpuZoom(ZoomRequest request)

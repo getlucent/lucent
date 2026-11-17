@@ -75,20 +75,7 @@ namespace Lucent
             float aid=(float)Math.Max(0,Math.Min(1,look.VisionStrength/100));
             if(fix!=null)for(int i=0;i<3;i++)for(int j=0;j<3;j++)vision[i*5+j]=(i==j?1f:0f)+(fix[i*3+j]-(i==j?1f:0f))*aid;
             m=Multiply(m,vision);
-            // Smart shadows are done on the GPU instead, so the display matrix leaves them alone.
-            if(look.DarkEnabled&&!look.DarkSmart)
-            {
-                float strength=(float)Math.Max(0,Math.Min(1,look.DarkStrength/100));
-                float gain=1+strength*5,offset=-(float)Math.Max(0,Math.Min(.2,look.BlackLevel/500));
-                float[] dark=Identity();for(int i=0;i<3;i++){dark[i*5+i]=gain;dark[20+i]=offset;}
-                m=Multiply(m,dark);
-                if(look.DarkColor!="White")
-                {
-                    float[] tint=Identity();float r=1,g=1,b=1;
-                    if(look.DarkColor=="Green"){r=.12f;b=.12f;}if(look.DarkColor=="Amber"){g=.65f;b=.08f;}if(look.DarkColor=="Cyan"){r=.1f;}
-                    tint[0]=r;tint[6]=g;tint[12]=b;m=Multiply(m,tint);
-                }
-            }
+            // Dark Boost is done on the GPU overlay (Smart shadows), so the display matrix leaves it alone.
             float[] brightness=Identity();brightness[0]=brightness[6]=brightness[12]=dim;return Multiply(m,brightness);
         }
         public static bool Equal(float[] a,float[] b)

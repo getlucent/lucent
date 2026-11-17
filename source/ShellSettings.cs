@@ -59,6 +59,12 @@ namespace Lucent
                 ApplyMediaControls();
                 SaveSoon();
             }));
+            theme.Children.Add(SettingsSwitch("Compact mode","Tighter spacing and smaller headings, so more fits on a small screen.",preferences.Compact,v=>
+            {
+                preferences.Compact=v;
+                ApplyCompact();
+                SaveSoon();
+            }));
             theme.Children.Add(SettingsSwitch("Adaptive colors","Blend colors from the current artwork into the interface.",preferences.AdaptiveTheme,v=>
             {
                 preferences.AdaptiveTheme=v;
@@ -127,7 +133,8 @@ namespace Lucent
             }));
             appearance.Children.Add(SettingsGroup(art));
             var shortcuts=SettingsSection("Shortcuts");
-            BindRow(shortcuts,"Switch resolution",()=>preferences.SwitchKey,v=>preferences.SwitchKey=v,TogglePair);
+            // The quick panel first: one key over a game for vibrance, the crosshair, Dark Boost and the song.
+            BindRow(shortcuts,"Quick panel",()=>preferences.PanelKey,v=>preferences.PanelKey=v,ToggleQuickPanel);            BindRow(shortcuts,"Switch resolution",()=>preferences.SwitchKey,v=>preferences.SwitchKey=v,TogglePair);
             BindRow(shortcuts,"Toggle crosshair",()=>preferences.CrosshairKey,v=>preferences.CrosshairKey=v,ToggleCrosshair);
             AddZoomBind(shortcuts,"Zoom bind");
             BindRow(shortcuts,"Music mini player",()=>preferences.MediaKey,v=>preferences.MediaKey=v,MediaPopup);
@@ -180,6 +187,7 @@ namespace Lucent
             };
             overlay.Children.Add(SettingsGroup(feel));
             var lyricsLook=new StackPanel();
+            lyricsLook.Children.Add(SettingsSwitch("Word by word","The line being sung lights up word by word. Most songs only have a time for each line, so the words follow the pace of the line.",preferences.WordLyrics,v=>{preferences.WordLyrics=v;SaveSoon();}));
             lyricsLook.Children.Add(SettingsSwitch("Center lyrics","Center each lyric line instead of lining them up on the left.",preferences.MiniCenterLyrics,v=>
             {
                 preferences.MiniCenterLyrics=v;

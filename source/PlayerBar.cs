@@ -15,8 +15,8 @@ namespace Lucent
         // The bar is centered on the player buttons: 9 pixels below the page area's bottom edge, with 10 pixels between it and the page.
         // BarBottom: the bar floats this far above the window's bottom edge, so its whole rim shows (it used to sit 7 px past the edge, which cut the bottom of the glass off).
         internal const double BarHeight=68,BarBottom=0,SideRoom=172,VolumeRoom=206,PageInset=BarHeight+BarBottom+8;
-        // The bar lines up with the sections of the page on both sides: they begin 18 in from the page area and end 10 before its right edge (where the page scrolls).
-        internal const double BarLeft=18,BarRight=10;
+        // The bar is centered in the window: as far in from the right as from the left.
+        internal const double BarLeft=18,BarRight=18;
         internal readonly SolidColorBrush Surface;
         internal readonly BarBackdrop Backdrop=new BarBackdrop();
         readonly ArtistBadge artistPicture=new ArtistBadge(16);

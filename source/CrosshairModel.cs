@@ -23,6 +23,10 @@ namespace Lucent
         // Linked: the top and bottom arms have the same length and gap as the left and right ones. Unlinked, they have their own (LengthY, GapY).
         public bool Linked=true;
         public int LengthY=7,GapY=4;
+        // A picture used as the crosshair instead of the drawn shape (a PNG kept in Lucent's own folder), and its size in percent.
+        public string Image="";
+        public int ImageScale=100;
+        public bool HasImage {get{return !string.IsNullOrEmpty(Image)&&System.IO.File.Exists(Image);}}
         public CrosshairSettings Copy(){return (CrosshairSettings)MemberwiseClone();}
         // The length and gap of the top and bottom arms as drawn.
         public int VerticalLength {get{return Linked?Length:LengthY;}}
@@ -42,6 +46,8 @@ namespace Lucent
             Ring=false;
             Rotation=Limit(Rotation,0,45);Opacity=Limit(Opacity,20,100);OffsetX=Limit(OffsetX,-80,80);OffsetY=Limit(OffsetY,-80,80);
             OutlineThickness=Limit(OutlineThickness,1,3);
+            if(Image==null)Image="";
+            ImageScale=Limit(ImageScale,25,400);
             FillColor=CrosshairColors.Format(CrosshairColors.Parse(FillColor,System.Drawing.Color.White));
             OutlineColor=CrosshairColors.Format(CrosshairColors.Parse(OutlineColor,System.Drawing.Color.Black));
         }
@@ -117,6 +123,32 @@ namespace Lucent
             return s;
         }
     }
+    // Ready-made looks to try with one click: the six most copied crosshairs on vcrdb.net (November 2026: Small Dot, TenZ and yay of all time,
+    // Florescent, Venexx and nawy that week), turned from their Valorant codes into Lucent's settings (Valorant lines are about one pixel per unit at 1080p).
+    // Where Valorant has something Lucent does not (faded inner lines, separate dot opacity), the closest look is used.
+    public static class CrosshairGallery
+    {
+        static CrosshairSettings Look(string name,int length,int thickness,int gap,string fill,bool dot=false,int dotSize=3,bool square=false,bool top=true,int rotation=0,bool outline=true,bool arms=true)
+        {
+            var s=new CrosshairSettings {Name=name,Length=length,Thickness=thickness,Gap=gap,LengthY=length,GapY=gap,FillColor=fill,Dot=dot,DotSize=dotSize,SquareDot=square,Top=top&&arms,Right=arms,Bottom=arms,Left=arms,Rotation=rotation,Outline=outline};
+            s.Clamp();return s;
+        }
+        public static readonly CrosshairSettings[] Looks=
+        {
+            // 0;P;d;1;f;0;0t;4;0l;1;0o;0;0a;1;0f;0;1b;0  - a small white square block with an outline
+            Look("Small Dot",0,1,0,"#FFFFFF",true,4,true,true,0,true,false),
+            // 0;s;1;P;c;5;h;0;m;1;0l;4;0o;2;0a;1;0f;0;1b;0;S;c;4;o;1  - cyan, no outline, lines 4 long, 2 apart
+            Look("TenZ",4,2,2,"#00FFFF",false,3,false,true,0,false),
+            // 0;P;h;0;f;0;0l;4;0o;0;0a;1;0f;0;1b;0  - white closed plus, no outline
+            Look("yay",4,2,0,"#FFFFFF",false,3,false,true,0,false),
+            // 0;s;1;P;c;8;h;0;b;1;f;0;0l;2;0o;1;0a;1;0f;0;1b;0  - tiny plus, lines 2 long, 1 apart, no outline (custom color left at its white default)
+            Look("Florescent",2,2,1,"#FFFFFF",false,3,false,true,0,false),
+            // 0;c;1;s;1;P;o;1;d;1;m;1;0b;0;1b;0;S;s;1.691  - a green dot with a black outline, no lines
+            Look("Venexx",0,1,0,"#00FF00",true,2,false,true,0,true,false),
+            // 0;s;1;P;h;0;0l;4;0o;1;0a;0.394;0f;0;1o;2;1a;1;1m;0;1f;0  - short bright lines 2 from the middle (its faint inner lines are left out)
+            Look("nawy",2,2,2,"#FFFFFF",false,3,false,true,0,false)
+        };
+    }
     // A crosshair as one line of text, so it can be copied, sent to a friend and pasted back in.
     public static class CrosshairCode
     {
@@ -171,6 +203,8 @@ namespace Lucent
         // Pixels from the center to the edge of the drawing, outline included.
         public static int Extent(CrosshairSettings s)
         {
+            var picture=s.HasImage?Picture(s.Image):null;
+            if(picture!=null)return Math.Max(picture.Width,picture.Height)*s.ImageScale/200+2;
             int reach=(s.Thickness+1)/2;
             if(s.HasArms)reach=Math.Max(reach,Math.Max(s.Gap+s.Length,s.VerticalGap+s.VerticalLength));
             if(s.Dot)reach=Math.Max(reach,(DotPixels(s)+1)/2);
@@ -222,8 +256,48 @@ namespace Lucent
             }
             return mask;
         }
+        // A picture crosshair, made ready for the overlay once: every pixel fully on or fully off (the overlay's see-through color cannot blend),
+        // and none exactly the see-through magenta.
+        static readonly Dictionary<string,Bitmap> pictures=new Dictionary<string,Bitmap>(StringComparer.OrdinalIgnoreCase);
+        public static Bitmap Picture(string path)
+        {
+            Bitmap ready;
+            lock(pictures)
+            {
+                if(pictures.TryGetValue(path,out ready))return ready;
+                try
+                {
+                    using(var source=new Bitmap(path))
+                    {
+                        ready=new Bitmap(source.Width,source.Height,System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                        for(int y=0;y<source.Height;y++)for(int x=0;x<source.Width;x++)
+                        {
+                            var c=source.GetPixel(x,y);
+                            if(c.A<128){ready.SetPixel(x,y,System.Drawing.Color.Transparent);continue;}
+                            int r=c.R,b=c.B;if(r>=250&&c.G<=5&&b>=250){r=254;b=254;}
+                            ready.SetPixel(x,y,System.Drawing.Color.FromArgb(255,r,c.G,b));
+                        }
+                    }
+                }
+                catch(Exception){ready=null;}
+                pictures[path]=ready;return ready;
+            }
+        }
         public static void Draw(Graphics g,Rectangle bounds,CrosshairSettings s)
         {
+            var picture=s.HasImage?Picture(s.Image):null;
+            if(picture!=null)
+            {
+                // The picture, centered, at its own pixels times the size (pixel for pixel, no smoothing).
+                int w=Math.Max(1,picture.Width*s.ImageScale/100),h=Math.Max(1,picture.Height*s.ImageScale/100);
+                int px=bounds.Left+(bounds.Width-w)/2+s.OffsetX,py=bounds.Top+(bounds.Height-h)/2+s.OffsetY;
+                var saved=g.Save();
+                g.InterpolationMode=System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
+                g.PixelOffsetMode=System.Drawing.Drawing2D.PixelOffsetMode.Half;
+                g.DrawImage(picture,new Rectangle(px,py,w,h));
+                g.Restore(saved);
+                return;
+            }
             int extent=Extent(s),size=extent*2+1;
             var fill=Fill(s,extent);
             var state=g.Save();
