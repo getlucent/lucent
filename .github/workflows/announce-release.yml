@@ -1,0 +1,25 @@
+name: Announce release on Discord
+
+# When a release is published, post it to the Lucent Discord's updates channel.
+# Needs one repository secret: DISCORD_WEBHOOK_URL (a webhook for that channel). Without it the job does nothing.
+on:
+  release:
+    types: [published]
+
+jobs:
+  discord:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post to Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TAG: ${{ github.event.release.tag_name }}
+          NAME: ${{ github.event.release.name }}
+          URL: ${{ github.event.release.html_url }}
+          BODY: ${{ github.event.release.body }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then echo "No DISCORD_WEBHOOK_URL secret set, skipping."; exit 0; fi
+          # The release notes go in as data (never into the command), cut to fit one Discord message.
+          jq -n --arg title "${NAME:-$TAG}" --arg url "$URL" --arg body "${BODY:0:1800}" \
+            '{username: "Lucent", embeds: [{title: $title, url: $url, color: 13225428, description: $body}]}' \
+            | curl -sS --fail -H "Content-Type: application/json" -d @- "$WEBHOOK"

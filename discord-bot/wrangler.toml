@@ -1,0 +1,6 @@
+name = "lucent-bot"
+main = "src/worker.js"
+compatibility_date = "2025-01-01"
+
+# The bot's public key is not secret, but keep it out of the file anyway: set it with
+#   npx wrangler secret put DISCORD_PUBLIC_KEY
