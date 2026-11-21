@@ -75,7 +75,7 @@ namespace Lucent
             float aid=(float)Math.Max(0,Math.Min(1,look.VisionStrength/100));
             if(fix!=null)for(int i=0;i<3;i++)for(int j=0;j<3;j++)vision[i*5+j]=(i==j?1f:0f)+(fix[i*3+j]-(i==j?1f:0f))*aid;
             m=Multiply(m,vision);
-            // Dark Boost is done on the GPU overlay (Smart shadows), so the display matrix leaves it alone.
+            // Night Vision is done on the GPU overlay (Smart shadows), so the display matrix leaves it alone.
             float[] brightness=Identity();brightness[0]=brightness[6]=brightness[12]=dim;return Multiply(m,brightness);
         }
         public static bool Equal(float[] a,float[] b)

@@ -57,11 +57,12 @@ namespace Lucent
                 bool game=!string.IsNullOrEmpty(playingNow);
                 SetText(gameTitle,game?playingNow:"No game running");
                 double today=game?preferences.Playtime.Where(d=>d.Date==DateTime.Today.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture)&&string.Equals(d.Game,playingNow,StringComparison.OrdinalIgnoreCase)).Sum(d=>d.Minutes):0;
-                SetText(gameDetail,game?(today>=1?PlayLength(today)+" today":"Playing now"):"Lucent notices when one starts");
+                string where=playingOnPlayStation?"On PlayStation":"Playing now";
+                SetText(gameDetail,game?(today>=1?(playingOnPlayStation?"On PlayStation, ":"")+PlayLength(today)+" today":where):"Lucent notices when one starts");
                 if(playingProgram!=shownProgram)
                 {
                     shownProgram=playingProgram;gameIcon.Source=null;gameMark.Visibility=Visibility.Visible;
-                    if(!string.IsNullOrEmpty(shownProgram)&&!TestMode){string asked=shownProgram;GameLibrary.LoadIcon(asked,Dispatcher,source=>{if(asked==shownProgram){gameIcon.Source=source;gameMark.Visibility=Visibility.Collapsed;}});}
+                    if(!playingOnPlayStation&&!string.IsNullOrEmpty(shownProgram)&&!TestMode){string asked=shownProgram;GameLibrary.LoadIcon(asked,Dispatcher,source=>{if(asked==shownProgram){gameIcon.Source=source;gameMark.Visibility=Visibility.Collapsed;}});}
                 }
                 var track=PanelTrack;bool song=track!=null&&!string.IsNullOrEmpty(track.Title);
                 SetText(songTitle,song?track.Title:"Nothing playing");

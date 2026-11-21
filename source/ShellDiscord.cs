@@ -24,7 +24,7 @@ namespace Lucent
         internal Func<DiscordRpcClient> DiscordFactory;
         internal Func<GameProfile> DiscordGameProbe;
         internal Func<IEnumerable<string>> DiscordNameProbe;
-        sealed class DiscordGame {public string Name,Executable,Icon;public DiscordSong Song;}
+        sealed class DiscordGame {public string Name,Executable,Icon;public DiscordSong Song;public bool OnPlayStation;}
         sealed class DiscordSong {public string Title,Artist,Cover;public double Position,Duration;}
         MediaSession discordSession;
         double discordSongPosition;
@@ -37,7 +37,7 @@ namespace Lucent
 
         PresenceOptions PresenceNow()
         {
-            return new PresenceOptions {Timeline=preferences.DiscordTimeline,Button=preferences.DiscordButton,Idle=preferences.DiscordIdle,Songs=preferences.DiscordSongs,Competing=preferences.DiscordCompeting};
+            return new PresenceOptions {Timeline=preferences.DiscordTimeline,Button=preferences.DiscordButton,Songs=preferences.DiscordSongs};
         }
         // Starts or stops the connection to match the setting.
         internal void ApplyDiscord()
@@ -90,7 +90,13 @@ namespace Lucent
                     var profile=probe!=null?probe():FindRunningProfile(profiles);
                     if(profile!=null)return new DiscordGame {Name=profile.Name,Executable=profile.Executable};
                     var known=DiscordGameIcons.FindRunning(namesProbe!=null?namesProbe():RunningProgramNames(),namesProbe!=null?(Func<string,string>)null:ProgramPath);
-                    if(known!=null)return new DiscordGame {Name=known.Name,Icon=known.Icon};
+                    if(known!=null)
+                    {
+                        // where its program runs (so the status can go to the game's own process: one card on Discord, not two)
+                        string path=null;
+                        if(namesProbe==null)foreach(string n in RunningProgramNames())if(ReferenceEquals(DiscordGameIcons.Lookup(n+".exe",null),known)){path=ProgramPath(n)??n+".exe";break;}
+                        return new DiscordGame {Name=known.Name,Icon=known.Icon,Executable=path};
+                    }
                     // Not in Discord's list (a small or new game, like Rob Run): any program running from the folder of a game the launchers have installed
                     // (Steam, Epic, GOG, Ubisoft, EA, Battle.net, Riot, Xbox) is that game.
                     if(namesProbe==null&&probe==null)
@@ -185,11 +191,11 @@ namespace Lucent
             {
                 try{discordStarted=System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime();}catch(Exception){discordStarted=DateTime.UtcNow;}
             }
-            var info=new PresenceInfo {Game=game==null?null:game.Name,Since=game==null?discordStarted:discordGameSince,GameIcon=game==null?null:(game.Icon??(DiscordGameIcons.Lookup(game.Executable,game.Name)??new KnownGame()).Icon)};
+            var info=new PresenceInfo {OnPlayStation=game!=null&&game.OnPlayStation,Game=game==null?null:game.Name,Since=game==null?discordStarted:discordGameSince,GameIcon=game==null?null:(game.Icon??(DiscordGameIcons.Lookup(game.Executable,game.Name)??new KnownGame()).Icon)};
             if(song!=null){info.Title=song.Title;info.Artist=song.Artist;info.CoverUrl=song.Cover;info.Position=song.Position;info.Duration=song.Duration;}
             var activity=DiscordActivity.Build(info,options,DateTime.UtcNow);
             bool listening=activity!=null&&info.Game==null&&info.Title!=null&&options.Songs;
-            string key=(info.Game??"")+"|"+(info.GameIcon??"")+"|"+options.Timeline+options.Button+options.Idle+options.Songs+"|"+(listening?info.Title+"|"+info.Artist+"|"+info.CoverUrl:"");
+            string key=(info.Game??"")+"|"+(info.GameIcon??"")+"|"+options.Timeline+options.Button+options.Songs+"|"+(listening?info.Title+"|"+info.Artist+"|"+info.CoverUrl:"");
             // A song moves on by itself; the status is only sent again if the song changed or was skipped through, not as it plays on.
             if(listening&&key==discordSentKey)
             {
@@ -198,9 +204,30 @@ namespace Lucent
             }
             else if(key==discordSentKey)return;
             discordSentKey=key;discordSongPosition=info.Position;discordSongSentAt=DateTime.UtcNow;
-            discordShowing=activity==null?"":(info.Game!=null?"Playing "+info.Game+" with Lucent":(listening?"Listening to "+info.Title:"Idle"));
-            client.Set(activity);
+            discordShowing=activity==null?"":(info.Game!=null?"Playing "+info.Game+" with Lucent":(listening?"Listening to "+info.Title:""));
+            // a game's status goes to the game's own process, so Discord shows one card for it instead of its own plus Lucent's
+            client.Set(activity,info.Game!=null&&game!=null?GameProcessId(game.Executable,game.Name):0);
             ShowDiscordStatus();
+        }
+        // The id of the running process for a game (by its program's path, else its file name), or 0. Only names and paths are read.
+        static int GameProcessId(string executable,string name)
+        {
+            if(string.IsNullOrEmpty(executable))return 0;
+            string file=System.IO.Path.GetFileNameWithoutExtension(executable);
+            System.Diagnostics.Process[] found;
+            try{found=System.Diagnostics.Process.GetProcessesByName(file);}catch(Exception){return 0;}
+            try
+            {
+                int any=0;
+                foreach(var p in found)
+                {
+                    string path=null;try{path=ResolutionSwitcher.ProcessIdentity.ImagePath(p.Id);}catch(Exception){}
+                    if(path!=null&&string.Equals(path,executable,StringComparison.OrdinalIgnoreCase))return p.Id;
+                    if(any==0)any=p.Id;
+                }
+                return any;
+            }
+            finally{foreach(var p in found)p.Dispose();}
         }        void RefreshDiscordNow(){discordSentKey=null;var again=PushDiscord();}
 
         void ShowDiscordStatus()
@@ -234,15 +261,13 @@ namespace Lucent
             page.Children.Add(new TextBlock {Text="Display options",FontSize=15,FontWeight=FontWeights.Bold,Foreground=Brushes.White,Margin=new Thickness(2,4,0,8)});
             var options=new StackPanel();
             options.Children.Add(SettingsSwitch("Show songs","When a song is playing and no game is running, show it on your profile as \u201CListening to Lucent\u201D with its cover, artist and progress. The song\u2019s title and artist go to Discord (that is what your profile shows), and the cover is found with Deezer\u2019s public search, which is sent the same two names.",preferences.DiscordSongs,v=>{preferences.DiscordSongs=v;SaveSoon();RefreshDiscordNow();}));
-            options.Children.Add(SettingsSwitch("Show next to a game\u2019s own status","Shows Lucent\u2019s card as \u201CCompeting\u201D so it appears next to the game\u2019s own card. Off shows \u201CPlaying\u201D.",preferences.DiscordCompeting,v=>{preferences.DiscordCompeting=v;SaveSoon();RefreshDiscordNow();}));
-            options.Children.Add(SettingsSwitch("Show Idle","While nothing is playing and no game is running, show “Idle” with the Lucent logo on your profile.",preferences.DiscordIdle,v=>{preferences.DiscordIdle=v;SaveSoon();RefreshDiscordNow();}));
-            options.Children.Add(SettingsSwitch("Elapsed time","Show how long you have been playing the game, or how long Lucent has been open while idle.",preferences.DiscordTimeline,v=>{preferences.DiscordTimeline=v;SaveSoon();RefreshDiscordNow();}));
+            options.Children.Add(SettingsSwitch("Elapsed time","Show how long you have been playing the game.",preferences.DiscordTimeline,v=>{preferences.DiscordTimeline=v;SaveSoon();RefreshDiscordNow();}));
             page.Children.Add(SettingsGroup(options));
             page.Children.Add(new TextBlock {Text="Profile button",FontSize=15,FontWeight=FontWeights.Bold,Foreground=Brushes.White,Margin=new Thickness(2,4,0,8)});
             var buttons=new StackPanel();
             buttons.Children.Add(SettingsSwitch("\u201CGet Lucent\u201D button","Add a button to your status that opens Lucent\u2019s download page.",preferences.DiscordButton,v=>{preferences.DiscordButton=v;SaveSoon();RefreshDiscordNow();}));
             page.Children.Add(SettingsGroup(buttons));
-            page.Children.Add(new TextBlock {Text="Nothing is shown on Discord unless a game is running (like \u201CPlaying Rust with Lucent\u201D), a song is playing (\u201CListening to Lucent\u201D) or, if Show Idle is on, nothing is happening (\u201CIdle\u201D). Lucent only checks the names of running programs to know a game is open, and never opens the game.",FontSize=12,Foreground=Muted,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(2,0,0,10)});
+            page.Children.Add(new TextBlock {Text="Nothing is shown on Discord unless a game is running (like \u201CPlaying Rust with Lucent\u201D), or, with Show songs on, a song is playing (\u201CListening to Lucent\u201D). Lucent only checks the names of running programs to know a game is open, and never opens the game.",FontSize=12,Foreground=Muted,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(2,0,0,10)});
             ShowDiscordStatus();
             if(preferences.DiscordOn)ApplyDiscord();
         }

@@ -49,7 +49,7 @@ class ZoomLiveSmoke
   var other=Screen.AllScreens.FirstOrDefault(s=>!s.Primary);
   if(other==null){Console.WriteLine("SKIP: there is no second display to test the live overlay on.");return 0;}
   var area=other.Bounds;int w=area.Width,h=area.Height;
-  // Exact color values can only be checked while no color effect (red filter, dimming, Dark Boost) is on the display. Everything else still runs.
+  // Exact color values can only be checked while no color effect (red filter, dimming, Night Vision) is on the display. Everything else still runs.
   var effect=new float[25];bool identity=NativeEffects.MagInitialize()&&NativeEffects.MagGetFullscreenColorEffect(effect)&&ColorMath.Equal(effect,ColorMath.Identity());NativeEffects.MagUninitialize();
   if(!identity)Console.WriteLine("NOTE: a color effect is on the display right now, so the exact magnification values are not checked; style, visibility and input checks still run.");
   using(var pattern=new Pattern(area))

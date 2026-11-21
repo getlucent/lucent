@@ -22,7 +22,7 @@ using System.Windows.Media.Imaging;
 
 namespace Lucent
 {
-    // The Visual tools page: Dark Boost and zoom, behind the game-rules notice.
+    // The Visual tools page: Night Vision and zoom, behind the game-rules notice.
     internal sealed partial class Shell
     {
         FrameworkElement DarkPage()
@@ -107,21 +107,21 @@ namespace Lucent
             radarBox.Children.Add(Step("Place"));
             radarBox.Children.Add(Choices(new[]{"Center","Top","Bottom"},()=>current.RadarPlace,chosen=>current.RadarPlace=chosen,radarPlaceChoices));
 
-            // ---- Dark Boost
-            var box=Section("Dark Boost","Lifts dark scenes. Separate from closing apps in the Boost tab.");
+            // ---- Night Vision
+            var box=Section("Night Vision","Lifts dark scenes. Separate from closing apps in the Boost tab.");
             right.Children.Add(box);
-            darkBoostToggle=Toggle("Enable Dark Boost",current.DarkEnabled,v=>
+            darkBoostToggle=Toggle("Enable Night Vision",current.DarkEnabled,v=>
             {
                 if(v&&!preferences.RiskAccepted)throw new InvalidOperationException("Review the game-rule notice first.");
                 current.DarkEnabled=v;
                 Changed();
             });
             box.Children.Add(darkBoostToggle);
-            BindRow(box,"Dark Boost toggle",()=>preferences.DarkKey,v=>preferences.DarkKey=v,DarkBindPressed);
-            var darkHint=Text("Tap the shortcut to switch Dark Boost on or off. Hold it and turn the mouse wheel to change the Strength (up for more).",12);
+            BindRow(box,"Night Vision toggle",()=>preferences.DarkKey,v=>preferences.DarkKey=v,DarkBindPressed);
+            var darkHint=Text("Tap the shortcut to switch Night Vision on or off. Hold it and turn the mouse wheel to change the Strength (up for more).",12);
             darkHint.Foreground=Muted;
             box.Children.Add(darkHint);
-            // Dark Boost always opens up the dark parts and leaves bright areas alone (Smart shadows, on the GPU overlay); the old Fast mode is gone.
+            // Night Vision always opens up the dark parts and leaves bright areas alone (Smart shadows, on the GPU overlay); the old Fast mode is gone.
             box.Children.Add(Step("Tint"));
             var colors=new WrapPanel();
             foreach(string name in new[]{"Green","Amber","Cyan","White"})
@@ -141,6 +141,7 @@ namespace Lucent
             box.Children.Add(colors);
             AddSlider(box,"Strength",0,100,current.DarkStrength,v=>current.DarkStrength=v,"%");
             AddSlider(box,"Black level",0,100,current.BlackLevel,v=>current.BlackLevel=v,"%");
+            AddScreenShareToggle(box);
 
             // ---- Color pop
             var pop=Section("Color pop","Makes one color stand out, so outlines and abilities are easier to spot.");
@@ -238,7 +239,7 @@ namespace Lucent
             if(darkBoostToggle!=null)darkBoostToggle.IsChecked=current.DarkEnabled;
             Changed();
         }
-        // ---- Dark Boost: the toggle shortcut held down, plus the mouse wheel, changes the strength (up for more). A quick tap with no wheel still switches it on or off,
+        // ---- Night Vision: the toggle shortcut held down, plus the mouse wheel, changes the strength (up for more). A quick tap with no wheel still switches it on or off,
         // so the shortcut now acts when it is let go. The wheel is only read, and kept from scrolling the game, while the shortcut is held.
         ZoomWheelHook darkWheel;
         bool darkHold,darkWheelUsed;
@@ -273,7 +274,7 @@ namespace Lucent
             if(darkWheel!=null){darkWheel.Dispose();darkWheel=null;}
             darkHold=false;
         }
-        // One notch is 5 percent. Turning the wheel also switches Dark Boost on if it was off: it would otherwise change a strength nobody can see.
+        // One notch is 5 percent. Turning the wheel also switches Night Vision on if it was off: it would otherwise change a strength nobody can see.
         internal void DarkWheel(int delta)
         {
             darkWheelUsed=true;

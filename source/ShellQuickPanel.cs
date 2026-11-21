@@ -12,7 +12,7 @@ using TextBlock=Lucent.SmoothText;
 namespace Lucent
 {
     // The quick panel: one shortcut brings a small glass panel over the game with the things you change while playing (vibrance, the crosshair,
-    // Dark Boost, the song), without alt-tabbing. It closes with the same shortcut, Esc, or a click back into the game, and the game gets the focus back.
+    // Night Vision, the song), without alt-tabbing. It closes with the same shortcut, Esc, or a click back into the game, and the game gets the focus back.
     // It is an ordinary window on top (nothing is put into the game), so games in exclusive full screen draw over it; borderless and windowed games show it.
     internal sealed partial class Shell
     {
@@ -106,10 +106,10 @@ namespace Lucent
                 if(!syncing)shell.PanelSetVibrance(Math.Round(vibrance.Value));
             };
             stack.Children.Add(vibrance);
-            // The crosshair and Dark Boost, as the app's own switches.
+            // The crosshair and Night Vision, as the app's own switches.
             crosshairToggle=new CheckBox {Content="Crosshair",Margin=new Thickness(0,6,0,6),Style=(Style)owner.Resources["ToggleStyle"]};
             crosshairToggle.Click+=(s,e)=>Act(()=>{shell.PanelToggleCrosshair();Sync();});
-            darkToggle=new CheckBox {Content="Dark Boost",Margin=new Thickness(0,6,0,6),Style=(Style)owner.Resources["ToggleStyle"]};
+            darkToggle=new CheckBox {Content="Night Vision",Margin=new Thickness(0,6,0,6),Style=(Style)owner.Resources["ToggleStyle"]};
             darkToggle.Click+=(s,e)=>Act(()=>{string problem=shell.PanelToggleDark();if(problem!=null)note.Text=problem;Sync();});
             stack.Children.Add(crosshairToggle);stack.Children.Add(darkToggle);
             // The song: cover, title and artist, and the three buttons.

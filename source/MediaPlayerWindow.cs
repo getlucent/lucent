@@ -421,12 +421,13 @@ namespace Lucent
             {
                 if(started)return;started=true;
                 closeReal();
-                var quick=TimeSpan.FromMilliseconds(220);
-                var scale=new DoubleAnimation(1,.95,quick){EasingFunction=new CubicEase {EasingMode=EasingMode.EaseOut}};
+                // At the screen's own rate: it settles back a little on a soft spring while it fades, softly at both ends.
+                var quick=TimeSpan.FromMilliseconds(280);
+                var scale=PlayerBar.Smooth(new DoubleAnimation(1,.93,quick){EasingFunction=new PlayerBar.SpringEase(1,.95)});
                 shrink.BeginAnimation(ScaleTransform.ScaleXProperty,scale);
-                shrink.BeginAnimation(ScaleTransform.ScaleYProperty,scale.Clone());
+                shrink.BeginAnimation(ScaleTransform.ScaleYProperty,PlayerBar.Smooth(scale.Clone()));
                 // The fade runs the whole time, softly at both ends (an ease-in left it almost whole and then took it away in the last few frames).
-                var fade=new DoubleAnimation(1,0,quick){EasingFunction=new SineEase {EasingMode=EasingMode.EaseInOut}};
+                var fade=PlayerBar.Smooth(new DoubleAnimation(1,0,quick){EasingFunction=new SineEase {EasingMode=EasingMode.EaseInOut}});
                 fade.Completed+=(s,a)=>ghost.Close();
                 ghost.BeginAnimation(OpacityProperty,fade);
             };

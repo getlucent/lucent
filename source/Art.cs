@@ -20,6 +20,42 @@ namespace Lucent
             canvas.Children.Add(bead);
             return new Viewbox {Width=size,Height=size,Child=canvas};
         }
+        // The Vice Sunset version: the white mark on a rounded sunset tile, as the app icon has while the theme is on.
+        public static Border SunsetLogo(double size)
+        {
+            // The mark alone, as in the plain logo, but drawn in the icon's sunset colors corner to corner (blue at the top left, through violet and pink, to
+            // orange at the bottom right), with a faint pink glow.
+            var ink=new LinearGradientBrush {MappingMode=BrushMappingMode.Absolute,StartPoint=new Point(5,5),EndPoint=new Point(27,27)};
+            ink.GradientStops.Add(new GradientStop(Color.FromRgb(86,117,248),0));
+            ink.GradientStops.Add(new GradientStop(Color.FromRgb(151,103,247),.25));
+            ink.GradientStops.Add(new GradientStop(Color.FromRgb(214,62,214),.48));
+            ink.GradientStops.Add(new GradientStop(Color.FromRgb(255,70,160),.68));
+            ink.GradientStops.Add(new GradientStop(Color.FromRgb(255,146,137),.85));
+            ink.GradientStops.Add(new GradientStop(Color.FromRgb(255,178,97),1));
+            ink.Freeze();
+            var canvas=new Canvas {Width=32,Height=32};
+            canvas.Children.Add(new System.Windows.Shapes.Path {Data=Geometry.Parse("M26.27,13.82 A10.5,10.5 0 1 1 18.18,5.73"),Stroke=ink,StrokeThickness=ResolutionSwitcher.Brand.RingWidth,StrokeStartLineCap=PenLineCap.Round,StrokeEndLineCap=PenLineCap.Round});
+            // The bead sits where the gradient is violet pink.
+            var bead=new System.Windows.Shapes.Ellipse {Width=ResolutionSwitcher.Brand.BeadRadius*2,Height=ResolutionSwitcher.Brand.BeadRadius*2,Fill=new SolidColorBrush(Color.FromRgb(196,84,232))};
+            Canvas.SetLeft(bead,ResolutionSwitcher.Brand.BeadX-ResolutionSwitcher.Brand.BeadRadius);
+            Canvas.SetTop(bead,ResolutionSwitcher.Brand.BeadY-ResolutionSwitcher.Brand.BeadRadius);
+            canvas.Children.Add(bead);
+            return new Border {Width=size,Height=size,Child=new Viewbox {Width=size,Height=size,Child=canvas},HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center,
+                Effect=new System.Windows.Media.Effects.DropShadowEffect {Color=Color.FromRgb(255,80,170),BlurRadius=8,ShadowDepth=0,Opacity=.45}};
+        }
+        public static System.Windows.Media.Imaging.BitmapSource SunsetPicture(int size)
+        {
+            using(var bitmap=ResolutionSwitcher.Brand.SunsetBitmap(size))
+            {
+                var data=bitmap.LockBits(new System.Drawing.Rectangle(0,0,size,size),System.Drawing.Imaging.ImageLockMode.ReadOnly,System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                try
+                {
+                    var source=System.Windows.Media.Imaging.BitmapSource.Create(size,size,96,96,PixelFormats.Bgra32,null,data.Scan0,data.Stride*size,data.Stride);
+                    source.Freeze();return source;
+                }
+                finally{bitmap.UnlockBits(data);}
+            }
+        }
         public static string Glyph(string name)
         {
             switch(name){

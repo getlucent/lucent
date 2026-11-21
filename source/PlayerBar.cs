@@ -91,12 +91,14 @@ namespace Lucent
             glassLayers.Children.Add(new Border {Background=Surface,CornerRadius=new CornerRadius(14),IsHitTestVisible=false});
             stack.Children.Add(glassLayers);
             // The glass: a soft sheen from the top left, and a thin lit edge that is brightest along the top, like the rim of a pane of glass.
-            var sheen=new LinearGradientBrush(new GradientStopCollection{new GradientStop(Color.FromArgb(18,255,255,255),0),new GradientStop(Color.FromArgb(5,255,255,255),.5),new GradientStop(Color.FromArgb(0,255,255,255),1)},new Point(0,0),new Point(.7,1));
+            var sheen=new LinearGradientBrush(new GradientStopCollection{new GradientStop(Color.FromArgb(18,255,255,255),0),new GradientStop(Color.FromArgb(5,255,255,255),.5),new GradientStop(Color.FromArgb(0,255,255,255),1)},new Point(0,0),new Point(0,1));
                         sheen.Freeze();
             var rimLayer=new Grid {IsHitTestVisible=false};rimLayer.Children.Add(new Border {Background=sheen,CornerRadius=new CornerRadius(14),IsHitTestVisible=false});rimLayer.Children.Add(Design.GlassEdge(14));glassRim=rimLayer;
             stack.Children.Add(glassRim);
             stack.Children.Add(layout);
+            barContent=layout;layout.RenderTransform=contentShift;
             stack.SizeChanged+=(s,e)=>{if(stack.ActualWidth>0&&stack.ActualHeight>0)glassLayers.OpacityMask=RoundedMask(stack.ActualWidth,stack.ActualHeight,14);};
+            barStack=stack;barGlassLayers=glassLayers;
             Child=stack;
 
             var track=new Grid {VerticalAlignment=VerticalAlignment.Center};
@@ -175,9 +177,13 @@ namespace Lucent
         void ShowGlassParts()
         {
             if(blur==null||glassRim==null)return;
+            if(face!=null){barGlassLayers.Visibility=Visibility.Collapsed;glassRim.Visibility=Visibility.Collapsed;return;}
             blur.Visibility=glass&&Backdrop.On?Visibility.Visible:Visibility.Collapsed;
             glassRim.Visibility=glass?Visibility.Visible:Visibility.Collapsed;
         }
+        // The bar can wear the same glass as the player buttons (the shell makes it), so the pill and the bar it grows into are one material.
+        Grid barStack,barGlassLayers;UIElement face;
+        internal void UseFace(UIElement glassFace){face=glassFace;barStack.Children.Insert(0,glassFace);ShowGlassParts();}
         // What the blur shows is a copy of the strip behind the bar: the window's colors, the moving colors and the page (each a copy of its own, so that together they cover
         // what is really behind and the sharp page does not show through the soft one). The copies are blurred together.
         VisualBrush[] blurBrushes;Visual[] blurSources;
@@ -211,17 +217,128 @@ namespace Lucent
             var ease=new CubicEase {EasingMode=EasingMode.EaseOut};
             if(show)
             {
+                // A close may have left the bar in the pill's shape while it faded; opening starts from the whole bar (or regrows it from the pill below).
+                Clip=null;
                 Visibility=Visibility.Visible;
-                Design.Animate(this,OpacityProperty,Opacity,1,240);
-                slide.BeginAnimation(TranslateTransform.YProperty,new DoubleAnimation(BarHeight*.5,0,TimeSpan.FromMilliseconds(280)){EasingFunction=ease});
+                // Out of the player buttons' glass: the bar starts as that small pill and widens into the whole bottom.
+                Rect? from=null;
+                if(GrowFrom!=null&&GrowFrom()!=null){UpdateLayout();from=GrowFrom();}
+                if(from!=null&&ActualWidth>0)
+                {
+                    // Like Apple's morphs: the glass springs open from the pill (a soft spring that settles without a wobble), and what is on the bar
+                    // follows a beat later, fading in as it eases a few pixels into place, so the shape leads and the content arrives as it settles.
+                    slide.BeginAnimation(TranslateTransform.YProperty,null);slide.Y=0;
+                    BeginAnimation(OpacityProperty,null);Opacity=1;
+                    Grow(from.Value,new Rect(0,0,ActualWidth,ActualHeight),430,new SpringEase(.92,1.05),null);
+                    // The content waits hidden and a little to the right from the very first frame (a delayed animation would show it as it is until it starts,
+                    // which made it flash on and then vanish), then fades in and glides into place as the glass settles.
+                    var appear=new DoubleAnimationUsingKeyFrames {FillBehavior=FillBehavior.HoldEnd};
+                    appear.KeyFrames.Add(new DiscreteDoubleKeyFrame(0,KeyTime.FromTimeSpan(TimeSpan.Zero)));
+                    appear.KeyFrames.Add(new LinearDoubleKeyFrame(0,KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(80))));
+                    appear.KeyFrames.Add(new EasingDoubleKeyFrame(1,KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(330)),new SineEase{EasingMode=EasingMode.EaseInOut}));
+                    barContent.BeginAnimation(OpacityProperty,Smooth(appear));
+                    var glide=new DoubleAnimationUsingKeyFrames {FillBehavior=FillBehavior.HoldEnd};
+                    glide.KeyFrames.Add(new DiscreteDoubleKeyFrame(22,KeyTime.FromTimeSpan(TimeSpan.Zero)));
+                    glide.KeyFrames.Add(new LinearDoubleKeyFrame(22,KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(50))));
+                    glide.KeyFrames.Add(new EasingDoubleKeyFrame(0,KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(420)),new SpringEase(1,1)));
+                    contentShift.BeginAnimation(TranslateTransform.XProperty,Smooth(glide));
+                }
+                else
+                {
+                    Design.Animate(this,OpacityProperty,Opacity,1,240);
+                    slide.BeginAnimation(TranslateTransform.YProperty,new DoubleAnimation(BarHeight*.5,0,TimeSpan.FromMilliseconds(280)){EasingFunction=ease});
+                }
                 var start=Core.Start();
                 return;
             }
             Core.Stop();
+            // Back into the buttons' glass: the bar narrows to the pill, then is gone.
+            var into=GrowFrom==null?null:GrowFrom();
+            if(into!=null&&ActualWidth>0)
+            {
+                // The reverse: what is on the bar fades out first, then the glass draws back into the pill with no bounce and melts into it.
+                barContent.BeginAnimation(OpacityProperty,Smooth(new DoubleAnimation(1,0,TimeSpan.FromMilliseconds(110)){FillBehavior=FillBehavior.HoldEnd,EasingFunction=new SineEase{EasingMode=EasingMode.EaseInOut}}));
+                contentShift.BeginAnimation(TranslateTransform.XProperty,Smooth(new DoubleAnimation(0,14,TimeSpan.FromMilliseconds(140)){EasingFunction=new CubicEase{EasingMode=EasingMode.EaseIn}}));
+                // The bar stays solid all the way down to exactly the pill's shape, then the pill takes over in the same frame (no fade, so no moment
+                // where neither shows and no box of the pill inside the bar).
+                ShrinksIntoPill=true;
+                Grow(new Rect(0,0,ActualWidth,ActualHeight),into.Value,320,new SpringEase(1,1.1),()=>
+                {
+                    ShrinksIntoPill=false;
+                    if(open)return;
+                    var shrunk=Shrunk;Shrunk=null;if(shrunk!=null)shrunk();
+                    // The bar stays fully solid underneath while the pill's border and veil fade in on top of it (the pill is drawn above the bar); once the
+                    // pill covers it completely the bar is taken away. Fading both at once let the background show through for a moment, which looked like a flash.
+                    var handOver=Smooth(new DoubleAnimation(1,1,TimeSpan.FromMilliseconds(PillHandOver)));
+                    handOver.Completed+=(s,e)=>
+                    {
+                        if(open)return;
+                        Visibility=Visibility.Collapsed;Clip=null;
+                        barContent.BeginAnimation(OpacityProperty,null);barContent.Opacity=1;
+                        contentShift.BeginAnimation(TranslateTransform.XProperty,null);contentShift.X=0;
+                    };
+                    BeginAnimation(OpacityProperty,handOver);
+                },30,true);
+                return;
+            }
             var fade=new DoubleAnimation(Opacity,0,TimeSpan.FromMilliseconds(170));
             fade.Completed+=(s,e)=>{if(!open)Visibility=Visibility.Collapsed;};
             BeginAnimation(OpacityProperty,fade);
             slide.BeginAnimation(TranslateTransform.YProperty,new DoubleAnimation(slide.Y,BarHeight*.35,TimeSpan.FromMilliseconds(170)){EasingFunction=ease});
+        }
+        // The bar's grow and shrink run at the monitor's own refresh rate (WPF holds animations to 60 frames a second unless told otherwise).
+        [System.Runtime.InteropServices.DllImport("user32.dll")]static extern IntPtr GetDC(IntPtr window);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]static extern int ReleaseDC(IntPtr window,IntPtr dc);
+        [System.Runtime.InteropServices.DllImport("gdi32.dll")]static extern int GetDeviceCaps(IntPtr dc,int index);
+        static int screenRate;
+        internal static int ScreenRate
+        {
+            get
+            {
+                if(screenRate>0)return screenRate;
+                int rate=60;
+                try{IntPtr dc=GetDC(IntPtr.Zero);try{rate=GetDeviceCaps(dc,116);}finally{ReleaseDC(IntPtr.Zero,dc);}}catch(Exception){}
+                return screenRate=Math.Max(60,Math.Min(360,rate<=1?60:rate));
+            }
+        }
+        internal static T Smooth<T>(T timeline) where T:Timeline{Timeline.SetDesiredFrameRate(timeline,ScreenRate);return timeline;}
+        // Where the player buttons' glass is, in the bar's own space, for the bar to grow out of and shrink back into (null: just slide in and out).
+        internal Func<Rect?> GrowFrom;
+        // True while the bar is shrinking into the pill; Shrunk is called once it has (the pill's own face comes back then).
+        internal bool ShrinksIntoPill;
+        internal Action Shrunk;
+        // How long the bar and the pill cross-fade where they meet, at the start of opening and the end of closing.
+        internal const int PillHandOver=140;
+        // Shows only the part of the bar inside a rounded rectangle that moves from one shape to another, then shows the whole bar again.
+        Grid barContent;
+        readonly TranslateTransform contentShift=new TranslateTransform();
+        void Grow(Rect from,Rect to,int milliseconds,IEasingFunction ease,Action done,int delay=0,bool keepShape=false)
+        {
+            var shape=new RectangleGeometry(from,10,10);
+            Clip=shape;
+            var span=TimeSpan.FromMilliseconds(milliseconds);
+            var move=Smooth(new RectAnimation(from,to,span){EasingFunction=ease,BeginTime=TimeSpan.FromMilliseconds(delay)});
+            // Growing ends showing the whole bar again; shrinking can keep the pill shape (keepShape) while the bar fades into the pill.
+            move.Completed+=(s,e)=>{if(!keepShape&&ReferenceEquals(Clip,shape))Clip=null;if(done!=null)done();};
+            shape.BeginAnimation(RectangleGeometry.RectProperty,move);
+            double r0=from.Width<to.Width?10:14,r1=from.Width<to.Width?14:10;
+            shape.BeginAnimation(RectangleGeometry.RadiusXProperty,Smooth(new DoubleAnimation(r0,r1,span){BeginTime=move.BeginTime}));
+            shape.BeginAnimation(RectangleGeometry.RadiusYProperty,Smooth(new DoubleAnimation(r0,r1,span){BeginTime=move.BeginTime}));
+        }
+        // A spring, the way Apple animates: a damped oscillation that starts fast and settles smoothly. damping 1 settles with no overshoot; below 1 it
+        // passes its mark a little and comes back. It is scaled so it has settled by the end of the animation.
+        internal sealed class SpringEase:EasingFunctionBase
+        {
+            readonly double damping,stiffness;
+            internal SpringEase(double damping,double stiffness){this.damping=damping;this.stiffness=stiffness;EasingMode=EasingMode.EaseIn;}
+            protected override double EaseInCore(double t)
+            {
+                double zeta=Math.Max(.1,Math.Min(1,damping)),omega=9.5*stiffness;
+                if(zeta>=.999)return 1-(1+omega*t)*Math.Exp(-omega*t);
+                double wd=omega*Math.Sqrt(1-zeta*zeta);
+                return 1-Math.Exp(-zeta*omega*t)*(Math.Cos(wd*t)+zeta*omega/wd*Math.Sin(wd*t));
+            }
+            protected override Freezable CreateInstanceCore(){return new SpringEase(damping,stiffness);}
         }
         void ShowProgress()
         {

@@ -12,10 +12,6 @@ namespace Lucent
     internal sealed class PresenceOptions
     {
         public bool Timeline=true,Button=true;
-        // Show "Idle" while Lucent is open and no game is running (off here; the setting turns it on).
-        public bool Idle=false;
-        // Show the game status as "Competing", which Discord lists beside a game's own "Playing" card; a second "Playing" card is hidden behind it.
-        public bool Competing=false;
         // Show the song that is playing, with its cover (off here; the setting turns it on).
         public bool Songs=false;
     }
@@ -24,6 +20,8 @@ namespace Lucent
     {
         public string Game,GameIcon;
         public DateTime Since;   // UTC
+        // The game is on a PlayStation, played through PS Remote Play on this PC.
+        public bool OnPlayStation;
         // The song playing now (no title: none), the address of its cover picture (may be null), and how far in it is, in seconds.
         public string Title,Artist,CoverUrl;
         public double Position,Duration;
@@ -64,13 +62,14 @@ namespace Lucent
         {
             if(options==null||info==null)return null;
             string game=Line(info.Game);
-            if(game==null)return Line(info.Title)!=null&&options.Songs?BuildSong(info,options,nowUtc):(options.Idle?BuildIdle(info,options,nowUtc):null);
+            if(game==null)return Line(info.Title)!=null&&options.Songs?BuildSong(info,options,nowUtc):null;   // no game (and no song shown): nothing on Discord
             var activity=new Dictionary<string,object>();
-            activity["type"]=options.Competing?5:0; // Playing, or Competing so it shows beside the game's own card
+            // Always "Playing", and Lucent named once: "Playing GTA VI", the game in bold, and under it "with Lucent" (or "on PlayStation, with Lucent").
+            activity["type"]=0;
             activity["status_display_type"]=0;
-            activity["name"]=Line(game+" with Lucent");
-            activity["details"]=Line("Playing "+game);
-            activity["state"]="with Lucent";
+            activity["name"]=game;
+            activity["details"]=game;
+            activity["state"]=info.OnPlayStation?"on PlayStation, with Lucent":"with Lucent";
             if(options.Timeline)
             {
                 DateTime since=info.Since!=default(DateTime)?info.Since:nowUtc;
@@ -84,7 +83,8 @@ namespace Lucent
                 assets["large_image"]=info.GameIcon;assets["large_text"]=game;
                 assets["small_image"]=ImageKey;assets["small_text"]="Lucent";
             }
-            else{assets["large_image"]=ImageKey;assets["large_text"]="Lucent";}
+            else assets["large_image"]=ImageKey;   // (no picture text: Discord shows it as another line, and Lucent is already named once)
+            if(assets.ContainsKey("large_text"))assets.Remove("large_text");
             activity["assets"]=assets;
             if(options.Button)
             {
@@ -117,31 +117,6 @@ namespace Lucent
             // The line under the artist (where Spotify shows the album) says how it is being played.
             if(!string.IsNullOrEmpty(info.CoverUrl)){assets["large_image"]=info.CoverUrl;assets["large_text"]=SongLine;assets["small_image"]=ImageKey;assets["small_text"]="Lucent";}
             else{assets["large_image"]=ImageKey;assets["large_text"]=SongLine;}
-            activity["assets"]=assets;
-            if(options.Button)
-            {
-                var button=new Dictionary<string,object>();button["label"]=ButtonLabel;button["url"]=ButtonUrl;
-                activity["buttons"]=new object[]{button};
-            }
-            return activity;
-        }
-        // Lucent is open but nothing is playing and no game is running: "Idle", since Lucent was started, with the Lucent logo.
-        static Dictionary<string,object> BuildIdle(PresenceInfo info,PresenceOptions options,DateTime nowUtc)
-        {
-            var activity=new Dictionary<string,object>();
-            activity["type"]=0;
-            activity["status_display_type"]=0;
-            activity["name"]="Lucent";
-            activity["details"]="Idle";
-            if(options.Timeline)
-            {
-                DateTime since=info.Since!=default(DateTime)?info.Since:nowUtc;
-                var stamps=new Dictionary<string,object>();
-                stamps["start"]=(long)Math.Round(since.ToUniversalTime().Subtract(new DateTime(1970,1,1,0,0,0,DateTimeKind.Utc)).TotalMilliseconds);
-                activity["timestamps"]=stamps;
-            }
-            var assets=new Dictionary<string,object>();
-            assets["large_image"]=ImageKey;assets["large_text"]="Lucent";
             activity["assets"]=assets;
             if(options.Button)
             {
@@ -281,9 +256,11 @@ namespace Lucent
         string status="Disabled",error="";
         readonly object gate=new object();
         readonly AutoResetEvent wake=new AutoResetEvent(false);
-        Dictionary<string,object> wanted;bool dirty,stop,started;
+        Dictionary<string,object> wanted;int wantedPid,sentPid;bool dirty,stop,started;
         Thread worker;
         public string Status{get{return status;}}
+        // The signed-in Discord user's id (from Discord's hello), used to read their PlayStation game through Lanyard.
+        public volatile string UserId;
         public string Error{get{return error;}}
 
         void SetStatus(string value)
@@ -302,9 +279,11 @@ namespace Lucent
             worker.Start();
         }
         // The status to show; null clears it.
-        public void Set(Dictionary<string,object> activity)
+        // pid: the program the status belongs to. A running game's own process makes Discord treat the status as that game's (one card, the way Medal does it),
+        // instead of a second card beside the game Discord found by itself. 0 is Lucent.
+        public void Set(Dictionary<string,object> activity,int pid=0)
         {
-            lock(gate){wanted=activity;dirty=true;}
+            lock(gate){wanted=activity;wantedPid=pid;dirty=true;}
             wake.Set();
         }
         public void Dispose()
@@ -382,7 +361,7 @@ namespace Lucent
                 if(Text(message,"evt")=="READY")
                 {
                     object data;string name=null;
-                    if(message.TryGetValue("data",out data)){var user=data as IDictionary<string,object>;object who;if(user!=null&&user.TryGetValue("user",out who))name=Text(who as IDictionary<string,object>,"username");}
+                    if(message.TryGetValue("data",out data)){var user=data as IDictionary<string,object>;object who;if(user!=null&&user.TryGetValue("user",out who)){name=Text(who as IDictionary<string,object>,"username");UserId=Text(who as IDictionary<string,object>,"id");}}
                     return name??"Discord";
                 }
                 if(Text(message,"evt")=="ERROR"){object data;message.TryGetValue("data",out data);throw new InvalidOperationException(Text(data as IDictionary<string,object>,"message")??"Discord refused the connection.");}
@@ -391,7 +370,16 @@ namespace Lucent
         }
         void Send(Stream pipe,Dictionary<string,object> activity)
         {
-            var args=new Dictionary<string,object>{{"pid",System.Diagnostics.Process.GetCurrentProcess().Id},{"activity",activity}};
+            int own=System.Diagnostics.Process.GetCurrentProcess().Id,pid;lock(gate)pid=wantedPid;
+            // a status is cleared for the program it was set for; a status moving to another program clears the old one first
+            if(activity==null)pid=sentPid>0?sentPid:own;else if(pid<=0)pid=own;
+            if(activity!=null&&sentPid>0&&sentPid!=pid)SendRaw(pipe,null,sentPid);
+            sentPid=activity==null?0:pid;
+            SendRaw(pipe,activity,pid);
+        }
+        void SendRaw(Stream pipe,Dictionary<string,object> activity,int pid)
+        {
+            var args=new Dictionary<string,object>{{"pid",pid},{"activity",activity}};
             var command=new Dictionary<string,object>{{"cmd","SET_ACTIVITY"},{"args",args},{"nonce",Guid.NewGuid().ToString()}};
             Write(pipe,1,new JavaScriptSerializer().Serialize(command));
             // Discord answers each command; an error is its way of saying it did not like the status.

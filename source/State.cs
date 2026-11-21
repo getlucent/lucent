@@ -28,7 +28,7 @@ namespace Lucent
         // How zoom is sharpened: Adaptive (follows how far it is zoomed and leaves noise and strong edges alone), Manual (the Sharpness slider) or Off.
         public string ZoomSharp="Adaptive";
         // Smart shadows lift the dark parts per pixel on the GPU instead of brightening everything through the display. ZoomFollow magnifies around the pointer.
-        // DarkSmart is always true now: Dark Boost has only the Smart shadows way (settings from before are moved to it when read).
+        // DarkSmart is always true now: Night Vision has only the Smart shadows way (settings from before are moved to it when read).
         public bool DarkEnabled=false,DarkSmart=true,ZoomFollow=false,RadarOn=false;
         public Look Copy(){return (Look)MemberwiseClone();}
     }
@@ -75,7 +75,9 @@ namespace Lucent
         // The shortcut that opens the quick panel over a game.
         public int PanelKey=0;
         // Compact mode: tighter spacing and smaller headings for small screens.
-        public bool Compact=false;
+        public bool Compact=true;
+        // 1: compact mode became the default and was switched on once for everyone (it can still be turned off).
+        public int CompactDefaultVersion;
         public string BackgroundFile="";
         public List<string> CustomBackgrounds=new List<string>();
         public List<string> BoostExclusions=new List<string>();
@@ -111,13 +113,24 @@ namespace Lucent
         public int MinimizeBehaviorVersion;
         // Closing the window keeps Lucent running in the tray. On unless the user turns it off. MinimizeToTray above is no longer used.
         public bool CloseToTray=true,TrayHintShown=false,CheckUpdates=true;
+        // Colors and Night Vision drawn where screen capture (OBS, Discord, screenshots) can see them, at about a frame of delay. Off by default.
+        public bool ShowOnScreenShare=false;
+        // The game being played on a PlayStation through PS Remote Play (the app cannot tell), and the last few picked.
+        public string PlayStationGame="";
+        public List<string> PlayStationRecent=new List<string>();
         // Where new versions are announced ("owner/repository" or an https address) and the last version the user was told about.
         public string UpdateSource="",NotifiedVersion="",PopupVersion="";
         // Discord Rich Presence (off until switched on): shown only while a game from a game profile is running; the elapsed time and the Get Lucent button.
-        public bool DiscordOn=true,DiscordTimeline=true,DiscordButton=true,DiscordIdle=true,DiscordSongs=true,DiscordCompeting=true;
+        public bool DiscordOn=true,DiscordTimeline=true,DiscordButton=true,DiscordSongs=true;   // (Idle and Competing were removed: Lucent shows on Discord only with a game or a song)
         // Discord Rich Presence is on by default. Settings saved before this was decided are turned on once (version 1); after that the switch in Settings is respected.
         public int DiscordSettingVersion;
         public bool AdaptiveTheme=true;
+        // The Vice Sunset (a tribute to the GTA VI launch): always on, with no setting, through November 2026. From December 1st it becomes a setting that is off
+        // unless switched on here. The date is checked at every launch.
+        public bool SunsetSwitchedOn;
+        public static readonly DateTime SunsetSettingFrom=new DateTime(2026,12,1);
+        public static bool SunsetIsSetting(DateTime today){return today>=SunsetSettingFrom;}
+        public bool SunsetOn(DateTime today){return !SunsetIsSetting(today)||SunsetSwitchedOn;}
         // Off: Lucent does not read what is playing at all: no player bar, mini player or player, and no colors from the music.
         public bool MediaControls=true;
         // How strongly the artwork colors the app is one fixed amount (there is no setting for it): the colors stay calm, a little like the dark, warm look of a music app.
@@ -228,6 +241,11 @@ namespace Lucent
                     string game=GameLibrary.RealGame(profile.Executable);
                     if(!string.IsNullOrEmpty(game))profile.Executable=game;
                 }
+            if(value.PlayStationGame==null)value.PlayStationGame="";
+            value.PlayStationGame=value.PlayStationGame.Trim();if(value.PlayStationGame.Length>80)value.PlayStationGame=value.PlayStationGame.Substring(0,80);
+            if(value.PlayStationRecent==null)value.PlayStationRecent=new List<string>();
+            value.PlayStationRecent=value.PlayStationRecent.Where(g=>!string.IsNullOrWhiteSpace(g)).Select(g=>g.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Take(8).ToList();
+            if(value.CompactDefaultVersion<1){value.Compact=true;value.CompactDefaultVersion=1;}
             if(value.DiscordSettingVersion<1){value.DiscordOn=true;value.DiscordSettingVersion=1;}
             if(value.Stats==null)value.Stats=new UsageStats();
             if(value.Playtime==null)value.Playtime=new List<PlayDay>();
@@ -260,7 +278,7 @@ namespace Lucent
             if(look.ZoomSharp!="Manual"&&look.ZoomSharp!="Off")look.ZoomSharp="Adaptive";
             look.ZoomFollow=false;   // zoom around the pointer was removed; zoom is always about the middle of the screen
             look.PopStrength=Clamp(look.PopStrength,0,100,60);look.RadarSensitivity=Clamp(look.RadarSensitivity,0,100,60);look.RadarOpacity=Clamp(look.RadarOpacity,10,100,100);
-            // There is no Fast mode for Dark Boost any more: every look uses Smart shadows.
+            // There is no Fast mode for Night Vision any more: every look uses Smart shadows.
             look.DarkSmart=true;
             if(Array.IndexOf(new[]{"Off","Red","Orange","Yellow","Green","Cyan","Blue","Magenta"},look.PopColor)<0)look.PopColor="Off";
             if(Array.IndexOf(new[]{"Small","Medium","Large"},look.RadarSize)<0)look.RadarSize="Medium";

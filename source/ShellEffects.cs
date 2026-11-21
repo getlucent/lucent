@@ -44,7 +44,8 @@ namespace Lucent
         // What the GPU overlay should draw. Sharpening belongs to zoom alone, so Color pop and Smart shadows never sharpen the picture.
         internal ZoomRequest BuildZoomRequest(Look look)
         {
-            bool activeZoom=zoomed&&!comparing,smart=look.DarkEnabled&&look.DarkSmart;
+            // with "Show on screen share" Night Vision is drawn by the mirror instead (the GPU overlay is left out of capture)
+            bool activeZoom=zoomed&&!comparing,smart=look.DarkEnabled&&look.DarkSmart&&!preferences.ShowOnScreenShare;
             return new ZoomRequest
             {
                 Zoom=activeZoom?look.Zoom:1,Follow=false,HideCursor=!zoomFromButton,
@@ -62,7 +63,14 @@ namespace Lucent
             UpdateGpuZoom(BuildZoomRequest(look));
             UpdateZoomWheel(zoomed&&!comparing&&preferences.RiskAccepted);
             UpdateRadar();
+            // "Show on screen share": the mirror draws the colors and Night Vision, and the display's own color effect stays neutral
+            var mirrorMatrix=ColorMath.Build(look);
+            if(look.DarkEnabled)mirrorMatrix=ColorMath.Multiply(StreamMirror.NightVision(look.DarkStrength/100,look.BlackLevel/100,TintFor(look.DarkColor)),mirrorMatrix);
+            bool share=preferences.ShowOnScreenShare&&!ColorMath.Equal(mirrorMatrix,ColorMath.Identity());
+            UpdateMirror(share,mirrorMatrix);
+            if(share){look.Saturation=Look.MinimumVibrance;look.Red=0;look.Dim=0;look.Vision="Normal";}
             bool hasColor=!ColorMath.Equal(ColorMath.Build(look),ColorMath.Identity());
+            if(share&&effects==null)return;
             if(effects==null)
             {
                 if(!hasColor)return;
@@ -127,7 +135,7 @@ namespace Lucent
             SaveSoon();
             if(gpuZoom!=null&&!TestMode)gpuZoom.Apply(BuildZoomRequest(EffectiveLook()));
         }
-        // The Dark Boost colors as per-channel multipliers, the same ones the display matrix uses.
+        // The Night Vision colors as per-channel multipliers, the same ones the display matrix uses.
         internal static float[] TintFor(string color)
         {
             switch(color)
@@ -190,10 +198,45 @@ namespace Lucent
                 SetStatus(error.Message);
             }
         }
+        // The "Show on screen share" switch, on Color (Eye Care) and on Night Vision: one setting, every copy of the switch kept in step.
+        readonly List<CheckBox> shareToggles=new List<CheckBox>();
+        void AddScreenShareToggle(Panel box)
+        {
+            var toggle=Toggle("Show on screen share",preferences.ShowOnScreenShare,v=>SetShowOnScreenShare(v));
+            shareToggles.Add(toggle);box.Children.Add(toggle);
+            var hint=Text("Lets OBS and Discord see your colors and Night Vision. Adds about a frame of delay.",12);hint.Foreground=Muted;
+            box.Children.Add(hint);
+        }
+        internal void SetShowOnScreenShare(bool on)
+        {
+            preferences.ShowOnScreenShare=on;SaveSoon();
+            foreach(var t in shareToggles)if(t.IsChecked!=on)t.IsChecked=on;
+            if(TestMode)return;
+            UpdateEffects();
+            SetStatus(on?"Colors and Night Vision now show on screen share":"Colors and Night Vision are hidden from screen share again");
+        }
+        StreamMirror mirror;
+        // Starts or stops the screen-share mirror and gives it the colors; the zoom overlay and its pointer are kept above it.
+        void UpdateMirror(bool on,float[] matrix)
+        {
+            if(on&&mirror!=null&&!mirror.Running)
+            {
+                string problem=mirror.Problem;mirror.Dispose();mirror=null;
+                preferences.ShowOnScreenShare=false;SaveSoon();
+                SetStatus("Show on screen share stopped"+(string.IsNullOrEmpty(problem)?"":": "+problem));
+                return;
+            }
+            if(on&&mirror==null)mirror=new StreamMirror();
+            if(!on&&mirror!=null){mirror.Dispose();mirror=null;}
+            if(mirror==null)return;
+            mirror.SetMatrix(matrix);
+            if(gpuZoom!=null)mirror.KeepAbove(gpuZoom.OverlayHandle);
+        }
         void DisableEffects()
         {
             applyLook=false;
             zoomed=false;
+            if(mirror!=null){mirror.Dispose();mirror=null;}
 
             UpdateGpuZoom(1);
 

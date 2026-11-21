@@ -34,7 +34,7 @@ namespace Lucent
     }
 
     // Reads what is typed into the palette: the words pick the command (any word, any order, the start of a word is enough), and a number or on / off
-    // at the end is what it is given. "vib 150", "vibrance 150%", "set vibrance to 150", "crosshair off", "dark boost" all work.
+    // at the end is what it is given. "vib 150", "vibrance 150%", "set vibrance to 150", "crosshair off", "night vision" all work.
     internal static class CommandPalette
     {
         static readonly HashSet<string> Filler=new HashSet<string>{"set","to","turn","the","a","at","switch","go","open","show"};

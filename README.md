@@ -9,7 +9,7 @@
 
 Free and open source (MIT) · Windows 10 / 11 · **[Download Lucent-Setup.exe](https://github.com/getlucent/lucent/releases/latest/download/Lucent-Setup.exe)**
 
-<a href="https://ko-fi.com/lucent_"><img src="docs/images/kofi-banner.svg" alt="Buy me a coffee. Support Lucent on Ko-fi" width="328"></a>
+<a href="https://discord.gg/qnjUsggPJ"><img src="docs/images/discord-banner.svg" alt="Come say hello! Join our community on Discord" width="328"></a>&nbsp;&nbsp;<a href="https://ko-fi.com/lucent_"><img src="docs/images/kofi-banner.svg" alt="Buy me a coffee. Support Lucent on Ko-fi" width="328"></a>
 
 </div>
 

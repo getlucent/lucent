@@ -125,6 +125,7 @@ namespace Lucent
             mainLow.Children.Add(care);
             AddSlider(care, "Red Filter", 0, 100, current.Red, value => current.Red = value, "%");
             AddSlider(care, "Screen Dim", 0, 85, current.Dim, value => current.Dim = value, "%");
+            AddScreenShareToggle(care);
             var vision = Section("Color Blindness", "");
             asideLow.Children.Add(vision);
             vision.Content.Margin=new Thickness(20,15,20,15);

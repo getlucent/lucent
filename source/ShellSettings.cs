@@ -65,6 +65,8 @@ namespace Lucent
                 ApplyCompact();
                 SaveSoon();
             }));
+            // The Vice switch only appears from December 1st (before that the theme is simply on).
+            if(SunsetIsSetting)theme.Children.Add(SettingsSwitch("Vice Sunset theme","A tribute to the GTA VI launch: the Vice logo and app icon, and a Vice City sunset behind the app while nothing is playing.",SunsetWanted,SetSunsetWanted));
             theme.Children.Add(SettingsSwitch("Adaptive colors","Blend colors from the current artwork into the interface.",preferences.AdaptiveTheme,v=>
             {
                 preferences.AdaptiveTheme=v;
@@ -133,7 +135,7 @@ namespace Lucent
             }));
             appearance.Children.Add(SettingsGroup(art));
             var shortcuts=SettingsSection("Shortcuts");
-            // The quick panel first: one key over a game for vibrance, the crosshair, Dark Boost and the song.
+            // The quick panel first: one key over a game for vibrance, the crosshair, Night Vision and the song.
             BindRow(shortcuts,"Quick panel",()=>preferences.PanelKey,v=>preferences.PanelKey=v,ToggleQuickPanel);            BindRow(shortcuts,"Switch resolution",()=>preferences.SwitchKey,v=>preferences.SwitchKey=v,TogglePair);
             BindRow(shortcuts,"Toggle crosshair",()=>preferences.CrosshairKey,v=>preferences.CrosshairKey=v,ToggleCrosshair);
             AddZoomBind(shortcuts,"Zoom bind");

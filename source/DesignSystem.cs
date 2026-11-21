@@ -399,17 +399,19 @@ namespace Lucent
         }
         // The edge of a pane of glass, drawn as a few thin rings, each fainter than the one outside it, laid over the pane (it takes no room and no clicks): a crisp lit
         // outer line that falls off softly toward the inside, brightest along the top. One hard line of one pixel on a curve shows its steps; a soft falloff does not.
-        // The rings are not snapped to whole pixels, so their curves are smoothed.
+        // Each ring is one whole pixel, so the straight edges are crisp; the curves are smoothed all the same.
         public static FrameworkElement GlassEdge(double radius)
         {
-            var edge=new Grid {IsHitTestVisible=false,UseLayoutRounding=false,SnapsToDevicePixels=false};
+            var edge=new Grid {IsHitTestVisible=false};
             double[] alpha={1,.42,.16};double inset=0;
             for(int ring=0;ring<alpha.Length;ring++)
             {
-                double width=ring==0?1.3:1.1;
+                // Whole pixels, lined up with the pane's own whole-pixel edge: a ring 1.3 pixels wide off the pixel grid smeared over two or three rows on the
+                // straight top edge and showed as a doubled line. (The curved corners are still smoothed: snapping only lines up straight edges.)
+                double width=1;
                 var brush=new LinearGradientBrush(new GradientStopCollection{new GradientStop(Color.FromArgb((byte)(120*alpha[ring]),255,255,255),0),new GradientStop(Color.FromArgb((byte)(34*alpha[ring]),255,255,255),.5),new GradientStop(Color.FromArgb((byte)(20*alpha[ring]),255,255,255),1)},new Point(0,0),new Point(0,1));
                 brush.Freeze();
-                edge.Children.Add(new Border {BorderBrush=brush,BorderThickness=new Thickness(width),CornerRadius=new CornerRadius(Math.Max(1,radius-inset)),Margin=new Thickness(inset),UseLayoutRounding=false,SnapsToDevicePixels=false,IsHitTestVisible=false});
+                edge.Children.Add(new Border {BorderBrush=brush,BorderThickness=new Thickness(width),CornerRadius=new CornerRadius(Math.Max(1,radius-inset)),Margin=new Thickness(inset),SnapsToDevicePixels=true,IsHitTestVisible=false});
                 inset+=width;
             }
             return edge;

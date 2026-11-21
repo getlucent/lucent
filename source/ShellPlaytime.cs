@@ -19,7 +19,7 @@ namespace Lucent
         readonly DispatcherTimer playtimeTimer=new DispatcherTimer {Interval=TimeSpan.FromSeconds(30)};
         bool readingPlaytime;
         DateTime lastPlaytimeTick;
-        string playingNow,playingProgram;
+        string playingNow,playingProgram;bool playingOnPlayStation;   // (PlayStation games: parked until Lucent has its own Discord server)
         void StartPlaytime()
         {
             playtimeTimer.Tick+=async(s,e)=>await TrackPlaytime();
@@ -39,6 +39,7 @@ namespace Lucent
                 var game=await Task.Run(()=>RunningGameNow(profiles,discordList));
                 if(closing)return;
                 playingNow=game==null?null:game.Name;playingProgram=game==null?null:game.Executable;
+                
                 if(game==null||minutes<=0)return;
                 // An entry that had no program yet gets it now, everywhere it appears.
                 if(!string.IsNullOrEmpty(game.Executable))

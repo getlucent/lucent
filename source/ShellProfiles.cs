@@ -28,7 +28,7 @@ namespace Lucent
         FrameworkElement ProfilesPage()
         {
             // One line says what a profile is; the details sit where they are used.
-            var stack=Page(TabTitle("Profiles"),"A profile saves your colors, Dark Boost and zoom, and a game's profile can also set its resolution and crosshair.");
+            var stack=Page(TabTitle("Profiles"),"A profile saves your colors, Night Vision and zoom, and a game's profile can also set its resolution and crosshair.");
             // Your games first, then your profiles, then switching, and saving your own settings last.
             stack.Children.Add(GameLibraryCard());
             var looks=Section("Your profiles","Choose the profile to use right now, or save what you have set up as a new one.");
@@ -240,7 +240,8 @@ namespace Lucent
             {
                 // A slot the shape of a profile row, with a plus.
                 var slot=new Grid {Margin=new Thickness(0,0,0,8),MinHeight=64};
-                slot.Children.Add(new Border {CornerRadius=new CornerRadius(14),BorderBrush=new SolidColorBrush(Color.FromArgb(46,255,255,255)),BorderThickness=new Thickness(1)});
+                var edge=new Border {CornerRadius=new CornerRadius(14),BorderBrush=new SolidColorBrush(Color.FromArgb(46,255,255,255)),BorderThickness=new Thickness(1),Background=new SolidColorBrush(Color.FromArgb(0,255,255,255))};
+                slot.Children.Add(edge);
                 var line=new DockPanel {Margin=new Thickness(14,12,14,12)};
                 var plus=new Grid {Width=40,Height=40,Margin=new Thickness(0,0,14,0),VerticalAlignment=VerticalAlignment.Center};
                 plus.Children.Add(new System.Windows.Shapes.Ellipse {Fill=new SolidColorBrush(Color.FromArgb(18,255,255,255))});
@@ -252,9 +253,10 @@ namespace Lucent
                 line.Children.Add(words);
                 slot.Children.Add(line);
                 // The whole slot is a button: it lights under the pointer and opens the list of your games.
-                slot.Background=new SolidColorBrush(Color.FromArgb(0,255,255,255));slot.Cursor=System.Windows.Input.Cursors.Hand;
-                slot.MouseEnter+=(s,e)=>((SolidColorBrush)slot.Background).Color=Color.FromArgb(14,255,255,255);
-                slot.MouseLeave+=(s,e)=>((SolidColorBrush)slot.Background).Color=Color.FromArgb(0,255,255,255);
+                // (the light is on the rounded edge's own background, so its corners stay round)
+                slot.Cursor=System.Windows.Input.Cursors.Hand;
+                slot.MouseEnter+=(s,e)=>((SolidColorBrush)edge.Background).Color=Color.FromArgb(14,255,255,255);
+                slot.MouseLeave+=(s,e)=>((SolidColorBrush)edge.Background).Color=Color.FromArgb(0,255,255,255);
                 slot.MouseLeftButtonUp+=(s,e)=>{e.Handled=true;PickGameForProfile(slot);};
                 System.Windows.Automation.AutomationProperties.SetName(slot,"Add a game profile");
                 profilesList.Children.Add(slot);
@@ -395,7 +397,7 @@ namespace Lucent
             return new Border {Background=active?selectionSurface:optionSurface,CornerRadius=new CornerRadius(14),Padding=new Thickness(14,12,12,12),Margin=new Thickness(0,0,0,8),Child=body};
         }
         readonly HashSet<string> openProfileSettings=new HashSet<string>();
-        // The parts of a look that are not neutral, in words: "Vibrance 150%", "Dark Boost 60%, Smart shadows", "Color pop: Red".
+        // The parts of a look that are not neutral, in words: "Vibrance 150%", "Night Vision 60%, Smart shadows", "Color pop: Red".
         internal static List<string> LookChanges(Look look)
         {
             var list=new List<string>();
@@ -405,7 +407,7 @@ namespace Lucent
             if(look.Dim>.5)list.Add("Screen dim "+pct(look.Dim));
             string vision=StateStore.CanonicalVision(look.Vision);
             if(vision!="Normal")list.Add(vision+(look.VisionStrength<99.5?" "+pct(look.VisionStrength):""));
-            if(look.DarkEnabled)list.Add("Dark Boost "+pct(look.DarkStrength)+(look.DarkColor!="Green"?", "+look.DarkColor:""));
+            if(look.DarkEnabled)list.Add("Night Vision "+pct(look.DarkStrength)+(look.DarkColor!="Green"?", "+look.DarkColor:""));
             if(look.PopColor!="Off")list.Add("Color pop: "+look.PopColor);
             if(look.RadarOn)list.Add("Sound radar");
             return list;
@@ -512,7 +514,7 @@ namespace Lucent
                 SetCrosshair(game.Crosshair.Copy(),game.CrosshairOn);
                 applied.Add(game.CrosshairOn?"crosshair":"crosshair off");
             }
-            if(current.DarkEnabled)applied.Add("Dark Boost");
+            if(current.DarkEnabled)applied.Add("Night Vision");
             if(current.Saturation>Look.MinimumVibrance+.5)applied.Add("vibrance "+Math.Round(current.Saturation)+"%");
             gameRestore=restore;
             if(preferences.ProfileToast&&!TestMode)GameToast.Show("Applied: "+game.Name+" profile",string.Join("  ·  ",applied.ToArray()),game.Executable);

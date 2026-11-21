@@ -22,7 +22,7 @@ namespace Lucent
         public double Sharpness;
         // Adaptive sharpening: the shader weighs it by the local contrast and by how far it is zoomed.
         public bool Adaptive;
-        // Smart Dark Boost: a shadow lift done per pixel on the GPU, which keeps bright areas from washing out.
+        // Smart Night Vision: a shadow lift done per pixel on the GPU, which keeps bright areas from washing out.
         public double Lift,Black;
         public float[] Tint=new float[]{1,1,1};
         public bool HideCursor=true;

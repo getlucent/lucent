@@ -241,15 +241,14 @@ namespace Lucent
             Action go=()=>
             {
                 if(motion!=pageMotion)return;
+                // At the screen's own rate, on a soft spring: the new page fades in as it glides the last few pixels into place, the old one drifts away.
                 var fadeIn=new DoubleAnimationUsingKeyFrames();
-                fadeIn.KeyFrames.Add(new SplineDoubleKeyFrame(1,KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(220)),new KeySpline(.2,.2,.2,1)));
+                fadeIn.KeyFrames.Add(new SplineDoubleKeyFrame(1,KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(260)),new KeySpline(.25,.1,.25,1)));
                 fadeIn.Completed+=(s,e)=>{if(motion==pageMotion)SettlePage();};
-                next.BeginAnimation(OpacityProperty,fadeIn);
-                var slideIn=new DoubleAnimationUsingKeyFrames();
-                slideIn.KeyFrames.Add(new SplineDoubleKeyFrame(0,KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(320)),new KeySpline(.25,.8,.3,1)));
-                rise.BeginAnimation(TranslateTransform.XProperty,slideIn);
-                ((TranslateTransform)old.RenderTransform).BeginAnimation(TranslateTransform.XProperty,new DoubleAnimation(0,-20*direction,TimeSpan.FromMilliseconds(180)){EasingFunction=new CubicEase{EasingMode=EasingMode.EaseIn}});
-                var fadeOut=new DoubleAnimation(old.Opacity,0,TimeSpan.FromMilliseconds(160)){EasingFunction=new CubicEase{EasingMode=EasingMode.EaseOut}};
+                next.BeginAnimation(OpacityProperty,PlayerBar.Smooth(fadeIn));
+                rise.BeginAnimation(TranslateTransform.XProperty,PlayerBar.Smooth(new DoubleAnimation(rise.X,0,TimeSpan.FromMilliseconds(420)){EasingFunction=new PlayerBar.SpringEase(1,.95)}));
+                ((TranslateTransform)old.RenderTransform).BeginAnimation(TranslateTransform.XProperty,PlayerBar.Smooth(new DoubleAnimation(0,-16*direction,TimeSpan.FromMilliseconds(200)){EasingFunction=new SineEase{EasingMode=EasingMode.EaseIn}}));
+                var fadeOut=PlayerBar.Smooth(new DoubleAnimation(old.Opacity,0,TimeSpan.FromMilliseconds(170)){EasingFunction=new SineEase{EasingMode=EasingMode.EaseInOut}});
                 var leaving=old;
                 fadeOut.Completed+=(s,e)=>{if(!ReferenceEquals(contentScroll,leaving))HideSlot(leaving);};
                 old.BeginAnimation(OpacityProperty,fadeOut);

@@ -211,7 +211,7 @@ namespace Lucent
         {
             Register("Quick panel",preferences.PanelKey,ToggleQuickPanel);            Register("Switch resolution",preferences.SwitchKey,TogglePair);
             Register("Toggle crosshair",preferences.CrosshairKey,ToggleCrosshair);
-            Register("Dark Boost toggle",preferences.DarkKey,DarkBindPressed);
+            Register("Night Vision toggle",preferences.DarkKey,DarkBindPressed);
             Register("Music mini player",preferences.MediaKey,MediaPopup);
             Register("Play / pause",preferences.PlayKey,()=>SendMedia(0xB3));
             Register("Next track",preferences.NextKey,()=>SendMedia(0xB0));

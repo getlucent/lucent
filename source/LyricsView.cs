@@ -664,6 +664,18 @@ namespace Lucent
                 double radius=off||away<.6?0:away<1.6?unit*1.3:unit*2.8;
                 ((SungLine)items[i].Child).SetBlur(radius);
             }
+            // The note of a pause sits between two lines and is blurred the same way by how far it is from the focus (sharp while it is the pause being held).
+            foreach(var pause in interludes)
+            {
+                double away=Math.Abs(pause.After+.5-focus);
+                double radius=Math.Round((off||away<.6?0:away<1.6?unit*1.3:unit*2.8)*2)/2;
+                var face=pause.Item.Child as FrameworkElement;if(face==null)continue;
+                var current=face.Effect as System.Windows.Media.Effects.BlurEffect;
+                if(radius<=0){if(current!=null){face.Effect=null;face.CacheMode=null;}continue;}
+                if(current!=null&&Math.Abs(current.Radius-radius)<.01)continue;
+                face.Effect=new System.Windows.Media.Effects.BlurEffect {Radius=radius,KernelType=System.Windows.Media.Effects.KernelType.Gaussian,RenderingBias=System.Windows.Media.Effects.RenderingBias.Performance};
+                face.CacheMode=new BitmapCache();
+            }
         }
         // Slides the lines so the active one rests about a third of the way down.
         // Lines far above or below what is on screen are not drawn at all (they keep their room, so nothing moves). Drawing every line of a long song

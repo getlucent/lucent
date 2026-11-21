@@ -188,6 +188,7 @@ namespace Lucent
             tray=new Forms.NotifyIcon {Text="Lucent",Icon=new System.Drawing.Icon(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Lucent.ico")),Visible=true};
             tray.MouseUp+=(s,e)=>{if(e.Button==Forms.MouseButtons.Right)ShowTrayMenu();};
             tray.DoubleClick+=(s,e)=>Open(page);
+            logoSunset=null;ApplySunsetLogo();
             Microsoft.Win32.SystemEvents.SessionEnding+=OnSessionEnding;
         }
         internal List<TrayEntry> TrayEntries()
@@ -220,7 +221,7 @@ namespace Lucent
             popup.Closed+=(s,e)=>{if(trayPopup==popup)trayPopup=null;};
             popup.ShowAt(Forms.Cursor.Position);
         }
-        // The top of the tray menu: vibrance, three switches (crosshair, Dark Boost, zoom) and the song. They act at once and the menu stays open.
+        // The top of the tray menu: vibrance, three switches (crosshair, Night Vision, zoom) and the song. They act at once and the menu stays open.
         internal FrameworkElement TrayQuickSettings(Action<Action> keep)
         {
             var muted=new SolidColorBrush(Color.FromRgb(160,160,166));
@@ -253,7 +254,7 @@ namespace Lucent
                 return box;
             };
             tiles.Children.Add(tile("Crosshair","Crosshair",()=>crosshair!=null,ToggleCrosshair));
-            tiles.Children.Add(tile("Visual tools","Dark Boost",()=>current.DarkEnabled,ToggleDarkBoost));
+            tiles.Children.Add(tile("Visual tools","Night Vision",()=>current.DarkEnabled,ToggleDarkBoost));
             tiles.Children.Add(tile("Search","Zoom",()=>zoomed,ToggleZoom));
             stack.Children.Add(tiles);
             // The song, with the three buttons; only while something plays and the media controls are on.

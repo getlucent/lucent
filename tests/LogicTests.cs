@@ -13,11 +13,15 @@ internal static class LogicTests
         var oldLook = new Look { Saturation = 0 }; Check(oldLook.Saturation == 100 && ColorMath.Equal(ColorMath.Build(oldLook), ColorMath.Identity()), "Legacy sub-neutral vibrance must become neutral");
         var red=Transform(ColorMath.Build(new Look {Red=100}),0,0,1);Check(red[0]>.01&&red[1]==0&&red[2]==0,"Full red filter must retain blue input as red luminance");
         var dim=Transform(ColorMath.Build(new Look {Dim=50}),1,1,1);Check(Math.Abs(dim[0]-.5)<.0001&&Math.Abs(dim[1]-.5)<.0001&&Math.Abs(dim[2]-.5)<.0001,"Dimming changed channels unequally");
-        // Dark Boost is drawn by the GPU (Smart shadows, the only way now), so the display matrix never brightens: not even for an old look saved as Fast.
+        // Night Vision is drawn by the GPU (Smart shadows, the only way now), so the display matrix never brightens: not even for an old look saved as Fast.
         var oldFast=ColorMath.Build(new Look {DarkEnabled=true,DarkSmart=false,DarkStrength=60,DarkColor="White"});var smart=ColorMath.Build(new Look {DarkEnabled=true,DarkSmart=true,DarkStrength=60,DarkColor="Green"});
-        Check(ColorMath.Equal(oldFast,ColorMath.Identity())&&ColorMath.Equal(smart,ColorMath.Identity()),"Dark Boost must only lift the picture on the GPU, never through the display matrix");
+        Check(ColorMath.Equal(oldFast,ColorMath.Identity())&&ColorMath.Equal(smart,ColorMath.Identity()),"Night Vision must only lift the picture on the GPU, never through the display matrix");
+        var vice=new Preferences();
+        Check(vice.SunsetOn(new DateTime(2026,11,30,23,59,0))&&!Preferences.SunsetIsSetting(new DateTime(2026,11,30)),"Vice Sunset must be on, with no setting, through November 2026");
+        Check(Preferences.SunsetIsSetting(new DateTime(2026,12,1))&&!vice.SunsetOn(new DateTime(2026,12,1))&&!vice.SunsetOn(new DateTime(2027,3,1)),"From December 1st Vice Sunset is a setting, off by default");
+        vice.SunsetSwitchedOn=true;Check(vice.SunsetOn(new DateTime(2026,12,5)),"Vice Sunset switched on in December stays on");
         var fresh=new Look();Check(fresh.DarkSmart&&!fresh.ZoomFollow&&fresh.ZoomSharpness==30,"New look defaults use Smart shadows and keep zoom centered");
-        var wasFast=new Preferences();wasFast.Desktop.DarkSmart=false;StateStore.Normalize(wasFast);Check(wasFast.Desktop.DarkSmart,"A look saved with Fast Dark Boost should become Smart shadows");
+        var wasFast=new Preferences();wasFast.Desktop.DarkSmart=false;StateStore.Normalize(wasFast);Check(wasFast.Desktop.DarkSmart,"A look saved with Fast Night Vision should become Smart shadows");
         var cleanPrefs=new Preferences();cleanPrefs.Desktop.DarkColor="Clean";cleanPrefs.Profiles.Add(new GameProfile {Look=new Look {DarkColor="Clean"}});StateStore.Normalize(cleanPrefs);Check(cleanPrefs.Desktop.DarkColor=="White"&&cleanPrefs.Profiles[0].Look.DarkColor=="White","A saved Clean tint should become White, which is the same thing");
         var zoomOld=new Preferences {HoldMouse5Zoom=true,ZoomHoldKey=6,ZoomKey=120};StateStore.Normalize(zoomOld);var zoomOldToggle=new Preferences {HoldMouse5Zoom=false,ZoomKey=120};StateStore.Normalize(zoomOldToggle);
         Check(zoomOld.ZoomBind==6&&zoomOldToggle.ZoomBind==120&&zoomOld.ZoomBindMigrated&&new Look().ZoomSharp=="Adaptive","Older zoom keys should become the one zoom bind, and sharpening should start adaptive");
@@ -257,8 +261,8 @@ internal static class LogicTests
         {
             new PaletteCommand{Title="Vibrance",Words=new[]{"saturation"},Argument=PaletteArgument.Number,Min=100,Max=300,Unit="%",Run=a=>ran="vibrance "+a},
             new PaletteCommand{Title="Crosshair",Argument=PaletteArgument.OnOff,Run=a=>ran="crosshair "+a},
-            new PaletteCommand{Title="Dark Boost",Words=new[]{"shadows"},Argument=PaletteArgument.OnOff,Run=a=>ran="dark "+a},
-            new PaletteCommand{Title="Dark Boost strength",Argument=PaletteArgument.Number,Min=0,Max=100,Run=a=>ran="strength "+a},
+            new PaletteCommand{Title="Night Vision",Words=new[]{"shadows","dark"},Argument=PaletteArgument.OnOff,Run=a=>ran="dark "+a},
+            new PaletteCommand{Title="Night Vision strength",Argument=PaletteArgument.Number,Min=0,Max=100,Run=a=>ran="strength "+a},
             new PaletteCommand{Title="Boost",Words=new[]{"page"},Run=a=>ran="boost page"},
             new PaletteCommand{Title="Valorant profile",Words=new[]{"profile"},Run=a=>ran="valorant"},
         };
@@ -271,12 +275,12 @@ internal static class LogicTests
         m=top("crosshair off");Check(m!=null&&m.Command.Title=="Crosshair"&&m.Argument=="off","\"crosshair off\" was not read");
         m=top("crosshair");Check(m!=null&&m.Argument=="","\"crosshair\" alone should switch it");
         Check(CommandPalette.Wanted("on",false)&&!CommandPalette.Wanted("off",true)&&CommandPalette.Wanted("",false)&&!CommandPalette.Wanted("",true),"On, off and switching are wrong");
-        m=top("dark boost 40");Check(m!=null&&m.Command.Title=="Dark Boost strength"&&m.Argument=="40","\"dark boost 40\" should set the strength (a number goes only to a command that takes one)");
-        m=top("dark");Check(m!=null&&m.Command.Title=="Dark Boost","\"dark\" should find Dark Boost first");
+        m=top("night vision 40");Check(m!=null&&m.Command.Title=="Night Vision strength"&&m.Argument=="40","\"night vision 40\" should set the strength (a number goes only to a command that takes one)");
+        m=top("dark");Check(m!=null&&m.Command.Title=="Night Vision","\"dark\" should find Night Vision first");
         m=top("valo");Check(m!=null&&m.Command.Title=="Valorant profile","A profile is not found by the start of its name");
         Check(CommandPalette.Match(commands,"zzz").Count==0,"Nonsense matched a command");
         Check(CommandPalette.Match(commands,"").Count==commands.Count,"An empty box should list every command");
-        Console.WriteLine("PASS: command palette: \"vibrance 150\", \"set saturation to 120\", \"crosshair off\", \"dark boost 40\", the start of a profile's name; numbers kept in range, on/off and switching.");
+        Console.WriteLine("PASS: command palette: \"vibrance 150\", \"set saturation to 120\", \"crosshair off\", \"night vision 40\", the start of a profile's name; numbers kept in range, on/off and switching.");
     }
     // ---- Games from the other launchers: the records they leave behind are read correctly, and only safe launch addresses are ever opened.
     static void LauncherChecks()
@@ -329,24 +333,29 @@ internal static class LogicTests
         var activity=DiscordActivity.Build(rust,on,now);
         var stamps=(System.Collections.Generic.Dictionary<string,object>)activity["timestamps"];
         var assets=(System.Collections.Generic.Dictionary<string,object>)activity["assets"];
-        Check((int)activity["type"]==0&&(string)activity["name"]=="Rust with Lucent"&&(string)activity["details"]=="Playing Rust"&&(string)activity["state"]=="with Lucent"&&(long)stamps["start"]==unix-101*60000,"The status for a game is wrong");
+        Check((int)activity["type"]==0&&(string)activity["name"]=="Rust"&&(string)activity["details"]=="Rust"&&(string)activity["state"]=="with Lucent"&&!((System.Collections.Generic.Dictionary<string,object>)activity["assets"]).ContainsKey("large_text")&&(long)stamps["start"]==unix-101*60000,"The status for a game is wrong");
         Check((string)assets["large_image"]=="https://cdn.discordapp.com/app-icons/1/abc.png"&&(string)assets["small_image"]=="lucent"&&(string)assets["small_text"]=="Lucent","The game picture should be large with the Lucent mark small in its corner, like Medal");
         Check(((object[])activity["buttons"]).Length==1&&((System.Collections.Generic.Dictionary<string,object>)((object[])activity["buttons"])[0])["url"].ToString().StartsWith("https://github.com/"),"The Get Lucent button is wrong");
         var plain=DiscordActivity.Build(new PresenceInfo{Game="Rust",Since=now},new PresenceOptions{Timeline=false,Button=false},now);
         PlayHistory.Clear();PlayHistory.Add(new MediaTrack{Title="One",Artist="A",Source="Spotify.exe"});PlayHistory.Add(new MediaTrack{Title="One",Artist="A",Source="Spotify.exe"});PlayHistory.Add(new MediaTrack{Title="Video",Artist="B",Source="Chrome"});PlayHistory.Add(new MediaTrack{Title="Two",Artist="A",Source="Spotify.exe"});
         Check(PlayHistory.Newest().Count==2&&PlayHistory.Newest()[0].Title=="Two"&&PlayHistory.Newest()[1].Title=="One","Recently played keeps each song once, newest first, and leaves out what a browser plays");PlayHistory.Clear();
         Check(DiscordActivity.IsBrowserSource("Chrome")&&DiscordActivity.IsBrowserSource("MSEdge")&&DiscordActivity.IsBrowserSource("BraveSoftware.Brave-Browser")&&DiscordActivity.IsBrowserSource("Firefox-308046B0AF4A39CB")&&DiscordActivity.IsBrowserSource("Opera.GX")&&!DiscordActivity.IsBrowserSource("Spotify.exe")&&!DiscordActivity.IsBrowserSource("AppleInc.AppleMusicWin")&&!DiscordActivity.IsBrowserSource(null),"Media from web browsers must be told apart from music apps");
-        Check((int)DiscordActivity.Build(new PresenceInfo{Game="Rust",Since=now},new PresenceOptions{Competing=true},now)["type"]==5&&(int)DiscordActivity.Build(new PresenceInfo{Game="Rust",Since=now},new PresenceOptions(),now)["type"]==0&&new Preferences().DiscordCompeting,"A game shows as Competing (beside the game's own card) when asked, Playing otherwise");
+        Check((int)DiscordActivity.Build(new PresenceInfo{Game="Rust",Since=now},new PresenceOptions(),now)["type"]==0,"A game always shows as Playing (Competing is gone)");
+        // A PlayStation game through Remote Play: "Playing GTA VI" on PlayStation; until a game is picked it is just "PlayStation".
+        var ps=DiscordActivity.Build(new PresenceInfo{Game="GTA VI",Since=now,OnPlayStation=true},new PresenceOptions(),now);
+        Check((string)ps["name"]=="GTA VI"&&(string)ps["details"]=="GTA VI"&&(string)ps["state"]=="on PlayStation, with Lucent"&&((string)ps["state"]).Contains("PlayStation")&&!((string)DiscordActivity.Build(new PresenceInfo{Game="Rust",Since=now},new PresenceOptions(),now)["state"]).Contains("PlayStation"),"A PlayStation game should say it is on PlayStation (and a PC game should not)");
+        var psPrefs=new Preferences{PlayStationGame=null,PlayStationRecent=new System.Collections.Generic.List<string>{"GTA VI"," gta vi ","",null,"FC 26"}};StateStore.Normalize(psPrefs);
+        Check(psPrefs.PlayStationGame==""&&psPrefs.PlayStationRecent.Count==2,"PlayStation picks are not cleaned when read: "+string.Join(",",psPrefs.PlayStationRecent));
         var plainAssets=(System.Collections.Generic.Dictionary<string,object>)plain["assets"];
         Check(!plain.ContainsKey("timestamps")&&!plain.ContainsKey("buttons")&&(string)plainAssets["large_image"]=="lucent"&&!plainAssets.ContainsKey("small_image"),"Switches must be respected, and a game with no picture falls back to the Lucent logo");
         Check(DiscordActivity.Build(null,on,now)==null&&DiscordActivity.Build(new PresenceInfo{Game=" "},on,now)==null&&DiscordActivity.Build(new PresenceInfo(),on,now)==null,"With no game running there must be no status at all (no music, no Lucent on its own)");
-        var idle=DiscordActivity.Build(new PresenceInfo{Since=now.AddMinutes(-5)},new PresenceOptions{Idle=true},now);
-        var idleAssets=(System.Collections.Generic.Dictionary<string,object>)idle["assets"];
-        Check(idle!=null&&(string)idle["name"]=="Lucent"&&(string)idle["details"]=="Idle"&&idle.ContainsKey("timestamps")&&idle.ContainsKey("buttons")&&(string)idleAssets["large_image"]=="lucent","The Idle status is wrong");
-        Check(DiscordActivity.Build(new PresenceInfo(),new PresenceOptions{Idle=true,Timeline=false,Button=false},now).ContainsKey("timestamps")==false&&DiscordActivity.Build(new PresenceInfo(),new PresenceOptions{Idle=false},now)==null&&(string)DiscordActivity.Build(new PresenceInfo{Game="Rust"},new PresenceOptions{Idle=true},now)["details"]=="Playing Rust","Idle must only appear with no game, and only when switched on");
-        Check(!idle.ContainsKey("state")&&(string)idle["details"]=="Idle","Idle should say only Idle");
+
+
+
+
+
         var songNow=new PresenceInfo{Title="Nvr again",Artist="Yeat",CoverUrl="https://e-cdns-images.dzcdn.net/images/cover/abc/500x500.jpg",Position=54,Duration=166};
-        var listening=DiscordActivity.Build(songNow,new PresenceOptions{Songs=true,Idle=true},now);
+        var listening=DiscordActivity.Build(songNow,new PresenceOptions{Songs=true},now);
         var listenStamps=(System.Collections.Generic.Dictionary<string,object>)listening["timestamps"];var listenAssets=(System.Collections.Generic.Dictionary<string,object>)listening["assets"];
         Check((int)listening["type"]==2&&(string)listening["name"]=="Lucent"&&(string)listening["details"]=="Nvr again"&&(string)listening["state"]=="Yeat","The song status is wrong");
         Check((long)listenStamps["start"]==unix-54*1000&&(long)listenStamps["end"]==unix-54*1000+166*1000,"The song's progress bar should run from its start to its end");
@@ -362,12 +371,12 @@ internal static class LogicTests
             Check(janice!=null&&janice.Contains("/abc/")&&asked.Count==2,"A song the exact search misses should still get its cover from the plain search: "+janice);
             SongCovers.Reset();SongCovers.SearchFetcher=keptCover;
         }
-        Check(DiscordActivity.Build(songNow,new PresenceOptions{Songs=false,Idle=true},now)["details"].ToString()=="Idle"&&DiscordActivity.Build(songNow,new PresenceOptions{Songs=false},now)==null,"With songs off a playing song must not be shown");
-        Check((string)DiscordActivity.Build(new PresenceInfo{Game="Rust",Title="Nvr again",Duration=100},new PresenceOptions{Songs=true},now)["details"]=="Playing Rust","A running game comes before a song");
+        Check(DiscordActivity.Build(songNow,new PresenceOptions{Songs=false},now)==null,"With songs off a playing song must not be shown");
+        Check((string)DiscordActivity.Build(new PresenceInfo{Game="Rust",Title="Nvr again",Duration=100},new PresenceOptions{Songs=true},now)["details"]=="Rust","A running game comes before a song");
         Check(new Preferences().DiscordSongs,"Show songs should be on by default (Discord itself is off until switched on)");
         // The cover comes from Deezer's answer: the result with the same title and artist, from Deezer's own servers.
         string deezer="{\"data\":[{\"title\":\"Other\",\"artist\":{\"name\":\"Yeat\"},\"album\":{\"cover_big\":\"https://e-cdns-images.dzcdn.net/images/cover/wrong/500x500.jpg\"}},{\"title\":\"Nvr again\",\"artist\":{\"name\":\"Yeat\"},\"album\":{\"cover_big\":\"https://e-cdns-images.dzcdn.net/images/cover/right/500x500.jpg\"}}]}";
-        Check(SongCovers.CoverUrl(deezer,"Nvr again (feat. X)","Yeat, Someone").Contains("/right/")&&SongCovers.CoverUrl(deezer,"Nvr again","Drake")==null&&SongCovers.CoverUrl(deezer.Replace("e-cdns-images.dzcdn.net","evil.example.com"),"Nvr again","Yeat")==null&&SongCovers.CoverUrl("not json","a","b")==null,"The song cover must be of the same song and from Deezer");        Check(new Preferences().DiscordIdle,"Show Idle should be on by default");
+        Check(SongCovers.CoverUrl(deezer,"Nvr again (feat. X)","Yeat, Someone").Contains("/right/")&&SongCovers.CoverUrl(deezer,"Nvr again","Drake")==null&&SongCovers.CoverUrl(deezer.Replace("e-cdns-images.dzcdn.net","evil.example.com"),"Nvr again","Yeat")==null&&SongCovers.CoverUrl("not json","a","b")==null,"The song cover must be of the same song and from Deezer");
         Check(DiscordActivity.Line("X").Length>=2&&DiscordActivity.Line(new string('a',300)).Length==128,"Lines must be 2 to 128 characters");
         // Pictures come from Discord's own list of known games.
         DiscordGameIcons.Reset();
@@ -410,7 +419,7 @@ internal static class LogicTests
         client.Set(DiscordActivity.Build(rust,on,now));
         string sent;for(int i=0;i<100&&!received.TryPeek(out sent);i++)System.Threading.Thread.Sleep(50);
         received.TryDequeue(out sent);
-        Check(sent!=null&&sent.Contains("\"cmd\":\"SET_ACTIVITY\"")&&sent.Contains("\"name\":\"Rust with Lucent\"")&&sent.Contains("\"details\":\"Playing Rust\"")&&sent.Contains("\"type\":0")&&sent.Contains("\"pid\":"),"Discord did not get the game: "+sent);
+        Check(sent!=null&&sent.Contains("\"cmd\":\"SET_ACTIVITY\"")&&sent.Contains("\"name\":\"Rust\"")&&sent.Contains("\"details\":\"Rust\"")&&sent.Contains("\"type\":0")&&sent.Contains("\"pid\":"),"Discord did not get the game: "+sent);
         client.Set(null);
         for(int i=0;i<100&&!received.TryPeek(out sent);i++)System.Threading.Thread.Sleep(50);
         received.TryDequeue(out sent);

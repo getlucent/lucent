@@ -294,11 +294,14 @@ namespace Lucent
                     // The exact reverse of closing: the player grows out of the cover on the player bar, from that cover's size, and fades in as it leaves it.
                     double small=Math.Max(.03,Math.Min(.2,from.Value.Width/sizeForAim));
                     double start=grow.ScaleX<1&&Opacity>0?grow.ScaleX:small;
-                    BeginAnimation(OpacityProperty,new DoubleAnimation(Opacity,1,TimeSpan.FromMilliseconds(150)));
+                    // The reverse of closing: out of the cover with rounded corners, the width leading and the height following, the corners squaring off
+                    // as it fills the window.
+                    BeginAnimation(OpacityProperty,PlayerBar.Smooth(new DoubleAnimation(Opacity,1,TimeSpan.FromMilliseconds(140))));
                     slide.BeginAnimation(TranslateTransform.YProperty,null);slide.Y=0;
-                    var growOut=new DoubleAnimation(start,1,TimeSpan.FromMilliseconds(360)){EasingFunction=new CubicEase{EasingMode=EasingMode.EaseInOut}};
-                    grow.BeginAnimation(ScaleTransform.ScaleXProperty,growOut);grow.BeginAnimation(ScaleTransform.ScaleYProperty,growOut);
-                    SettleOpen(420);
+                    grow.BeginAnimation(ScaleTransform.ScaleXProperty,PlayerBar.Smooth(new DoubleAnimation(start,1,TimeSpan.FromMilliseconds(460)){EasingFunction=new PlayerBar.SpringEase(1,.9)}));
+                    grow.BeginAnimation(ScaleTransform.ScaleYProperty,PlayerBar.Smooth(new DoubleAnimation(start,1,TimeSpan.FromMilliseconds(540)){EasingFunction=new PlayerBar.SpringEase(1,.8)}));
+                    RoundCorners(10/start,0,500);
+                    SettleOpen(560);
                     await Core.Start();
                     return;
                 }
@@ -314,14 +317,17 @@ namespace Lucent
             var aim=AimAtCover();
             if(aim!=null)
             {
-                // The whole player shrinks down into the cover on the player bar: it ends as small as that cover, right on it, and only fades out as it gets there.
+                // The player compresses itself into the cover on the player bar: its corners round off as it shrinks (ending as round as that cover), its
+                // height gives way first so it flattens toward the bar before its width follows, all on a soft spring, and it fades only at the very end.
                 double small=Math.Max(.03,Math.Min(.2,aim.Value.Width/ActualWidth));
-                var fadeInto=new DoubleAnimation(Opacity,0,TimeSpan.FromMilliseconds(150)){BeginTime=TimeSpan.FromMilliseconds(210)};
-                fadeInto.Completed+=(s,e)=>{if(!open){Visibility=Visibility.Collapsed;CacheMode=null;}};
+                // It fades early and gradually, so it is mostly gone before it is as small as the cover: fading only at the end left a dark rounded blob sliding onto it.
+                var fadeInto=PlayerBar.Smooth(new DoubleAnimation(Opacity,0,TimeSpan.FromMilliseconds(260)){BeginTime=TimeSpan.FromMilliseconds(90),EasingFunction=new SineEase{EasingMode=EasingMode.EaseInOut}});
+                fadeInto.Completed+=(s,e)=>{if(!open){Visibility=Visibility.Collapsed;CacheMode=null;Clip=null;}};
                 BeginAnimation(OpacityProperty,fadeInto);
                 slide.BeginAnimation(TranslateTransform.YProperty,null);slide.Y=0;
-                var shrinkInto=new DoubleAnimation(grow.ScaleX,small,TimeSpan.FromMilliseconds(360)){EasingFunction=new CubicEase{EasingMode=EasingMode.EaseInOut}};
-                grow.BeginAnimation(ScaleTransform.ScaleXProperty,shrinkInto);grow.BeginAnimation(ScaleTransform.ScaleYProperty,shrinkInto);
+                grow.BeginAnimation(ScaleTransform.ScaleYProperty,PlayerBar.Smooth(new DoubleAnimation(grow.ScaleY,small,TimeSpan.FromMilliseconds(380)){EasingFunction=new PlayerBar.SpringEase(1,1.05)}));
+                grow.BeginAnimation(ScaleTransform.ScaleXProperty,PlayerBar.Smooth(new DoubleAnimation(grow.ScaleX,small,TimeSpan.FromMilliseconds(480)){EasingFunction=new PlayerBar.SpringEase(1,.82)}));
+                RoundCorners(0,10/small,420);
                 return;
             }
             var fade=new DoubleAnimation(Opacity,0,TimeSpan.FromMilliseconds(260)){BeginTime=TimeSpan.FromMilliseconds(60)};
@@ -330,6 +336,21 @@ namespace Lucent
             slide.BeginAnimation(TranslateTransform.YProperty,new DoubleAnimation(0,14,TimeSpan.FromMilliseconds(170)));
             var shrink=new DoubleAnimation(grow.ScaleX,.16,TimeSpan.FromMilliseconds(320)){EasingFunction=new CubicEase{EasingMode=EasingMode.EaseIn}};
             grow.BeginAnimation(ScaleTransform.ScaleXProperty,shrink);grow.BeginAnimation(ScaleTransform.ScaleYProperty,shrink);
+        }
+        // Rounds the player's corners from one radius to another while it moves (in its own units, so a radius of 10/scale looks 10 pixels round at that
+        // scale), and squares them off completely once open.
+        void RoundCorners(double from,double to,int milliseconds)
+        {
+            double w=ActualWidth>0?ActualWidth:sizeForAim,h=ActualHeight>0?ActualHeight:w*.6;
+            if(w<=0||h<=0||Design.Instant){Clip=null;return;}
+            from=Math.Min(from,Math.Min(w,h)/2);to=Math.Min(to,Math.Min(w,h)/2);
+            var shape=new RectangleGeometry(new Rect(0,0,w,h),from,from);
+            Clip=shape;
+            var span=TimeSpan.FromMilliseconds(milliseconds);
+            var round=PlayerBar.Smooth(new DoubleAnimation(from,to,span){EasingFunction=new SineEase{EasingMode=EasingMode.EaseInOut}});
+            if(to<=0)round.Completed+=(s,e)=>{if(open&&ReferenceEquals(Clip,shape))Clip=null;};
+            shape.BeginAnimation(RectangleGeometry.RadiusXProperty,round);
+            shape.BeginAnimation(RectangleGeometry.RadiusYProperty,round);
         }
         // Once the opening motion is over the player is drawn live again and its colors drift.
         void SettleOpen(int ms)

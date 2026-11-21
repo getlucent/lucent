@@ -75,6 +75,8 @@ namespace Lucent
         {
             this.host=host;
             this.testMode=testMode;
+            // The music buttons never keep the keyboard focus after a click, so Space (or Enter) does not press the last one clicked again.
+            foreach(var button in new[]{previous,play,next,shuffle,repeat})button.Focusable=false;
             refresh.Tick+=async(s,e)=>await Read();
             host.IsVisibleChanged+=(s,e)=>UpdateProgressFrames();
         }
@@ -115,6 +117,23 @@ namespace Lucent
             previous.IsEnabled=play.IsEnabled=next.IsEnabled=false;
             ShowModes();
         }
+        static readonly ControlTemplate IconOnly=MakeIconOnly();
+        static ControlTemplate MakeIconOnly()
+        {
+            var template=new ControlTemplate(typeof(Button));
+            var face=new FrameworkElementFactory(typeof(Border));
+            face.SetValue(Border.BackgroundProperty,new TemplateBindingExtension(Control.BackgroundProperty));
+            var content=new FrameworkElementFactory(typeof(ContentPresenter));
+            content.SetValue(FrameworkElement.HorizontalAlignmentProperty,HorizontalAlignment.Center);
+            content.SetValue(FrameworkElement.VerticalAlignmentProperty,VerticalAlignment.Center);
+            face.AppendChild(content);
+            template.VisualTree=face;
+            var disabled=new Trigger {Property=UIElement.IsEnabledProperty,Value=false};
+            disabled.Setters.Add(new Setter(UIElement.OpacityProperty,.4));
+            template.Triggers.Add(disabled);
+            template.Seal();
+            return template;
+        }
         internal static void Frame(Button button,double width)
         {
             button.Width=width;
@@ -123,6 +142,8 @@ namespace Lucent
             button.Padding=new Thickness(0);
             button.Margin=new Thickness(1,0,1,0);
             button.Background=new SolidColorBrush(Color.FromArgb(0,255,255,255));
+            // Just the icon: no square or highlight around it on hover (the app's usual button look drew one); the icon itself glows instead (see Motion).
+            button.Template=IconOnly;
             button.HorizontalContentAlignment=HorizontalAlignment.Center;
         }
         static void Configure(Button button,string symbol,string name,Func<Task> action,double width,double iconSize)
@@ -154,8 +175,11 @@ namespace Lucent
             ((System.Windows.Shapes.Path)icon.Child).Fill=Brushes.Black;
             return icon;
         }
-        // A control in a player only lights up while the pointer is over it: a soft round highlight behind its icon, at once, and nothing moves or eases.
+        // A control in a player only lights up while the pointer is over it: no highlight behind it, the icon itself brightens and glows softly, at once,
+        // and nothing moves or eases (the same as the player buttons by the bottom right).
         // (The sizes the callers pass are kept for them, but no longer used.)
+        static readonly System.Windows.Media.Effects.DropShadowEffect HoverGlow=MakeHoverGlow();
+        static System.Windows.Media.Effects.DropShadowEffect MakeHoverGlow(){var glow=new System.Windows.Media.Effects.DropShadowEffect {Color=Colors.White,ShadowDepth=0,BlurRadius=9,Opacity=.55,RenderingBias=System.Windows.Media.Effects.RenderingBias.Performance};glow.Freeze();return glow;}
         internal static void Motion(Button button,double hover,double press)
         {
             // A button that starts with no surface lights up a little under the pointer, and must always un-light again. The play disc gets its white
@@ -166,9 +190,9 @@ namespace Lucent
             {
                 if(!glyphLight||!ReferenceEquals(button.Background,pill))return;
                 pill.BeginAnimation(SolidColorBrush.ColorProperty,null);
-                pill.Color=Color.FromArgb(on?(byte)34:(byte)0,255,255,255);
+                pill.Color=Color.FromArgb(0,255,255,255);
                 var ink=button.Content as UIElement;
-                if(ink!=null){ink.BeginAnimation(UIElement.OpacityProperty,null);ink.Opacity=on?1:IdleInk;}
+                if(ink!=null){ink.BeginAnimation(UIElement.OpacityProperty,null);ink.Opacity=on?1:IdleInk;ink.Effect=on?HoverGlow:null;}
             };
             button.MouseEnter+=(s,e)=>light(true);
             button.MouseLeave+=(s,e)=>light(false);
@@ -336,17 +360,18 @@ namespace Lucent
             bool wanted=!testMode&&!stopped&&current!=null&&current.Playing&&OnScreen();
             if(wanted==progressFrames)return;
             progressFrames=wanted;
-            if(wanted)CompositionTarget.Rendering+=OnProgressFrame;
-            else CompositionTarget.Rendering-=OnProgressFrame;
+            if(wanted){if(progressTimer==null){progressTimer=new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Render){Interval=TimeSpan.FromSeconds(ProgressStep)};progressTimer.Tick+=OnProgressFrame;}progressTimer.Start();}
+            else if(progressTimer!=null)progressTimer.Stop();
         }
-        // The progress moves a few pixels a minute, so it is brought up to date fifteen times a second rather than on every one of the sixty frames:
-        // every frame the window is redrawn costs the processor, and measured, redrawing it that often for a moving bar took most of a core.
+        // The progress moves a few pixels a minute, so a timer brings it up to date fifteen times a second. (It used to listen to every frame WPF draws, and
+        // just listening makes WPF draw the whole window at the monitor's full rate, 300 times a second on a 300 Hz screen, glass and all.)
+        System.Windows.Threading.DispatcherTimer progressTimer;
         const double ProgressStep=1d/15;
         double lastProgressFrame;
         void OnProgressFrame(object sender,EventArgs e)
         {
             double now=ClockTime();
-            if(now-lastProgressFrame<ProgressStep)return;
+            if(now-lastProgressFrame<ProgressStep*.5)return;
             lastProgressFrame=now;
             SetProgress(progressClock.Position(now));
         }

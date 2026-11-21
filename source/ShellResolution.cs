@@ -111,18 +111,39 @@ namespace Lucent
                 .OrderByDescending(g=>g.Name==own?1:0).ThenBy(g=>g.Name=="Other"?1:0).ThenByDescending(g=>g.Items.Count).ToList();
             Action<string,List<DisplayMode>> add=(name,items)=>
             {
-                var heading=Text(name,12,true);
-                heading.Foreground=Muted;
-                heading.Margin=new Thickness(0,12,0,6);
-                card.Children.Add(heading);
+                if(name!=null)
+                {
+                    var heading=Text(name,12,true);
+                    heading.Foreground=Muted;
+                    heading.Margin=new Thickness(0,12,0,6);
+                    card.Children.Add(heading);
+                }
                 var chips=new WrapPanel();
                 foreach(var mode in items)chips.Children.Add(ResolutionChip(mode,currentMode,refresh));
                 card.Children.Add(chips);
             };
             if(favorites.Count>0)add("Favorites",favorites);
-            foreach(var group in groups)add(group.Name,group.Items);
+            // One shape at a time instead of one long list: a row of shape tabs (the display's own shape first), and only that shape's sizes under it.
+            if(groups.Count==0)return card;
+            if(resolutionTab==null||!groups.Any(g=>g.Name==resolutionTab))resolutionTab=groups[0].Name;
+            var tabsHeading=Text("All sizes",12,true);tabsHeading.Foreground=Muted;tabsHeading.Margin=new Thickness(0,14,0,6);
+            card.Children.Add(tabsHeading);
+            var tabs=new WrapPanel {Margin=new Thickness(0,0,0,10)};
+            foreach(var group in groups)
+            {
+                string name=group.Name;bool on=name==resolutionTab;
+                var tab=Action((on?"✓  ":"")+name+"  "+group.Items.Count,()=>{resolutionTab=name;refresh();});
+                tab.Padding=new Thickness(14,7,14,7);tab.Margin=new Thickness(0,0,8,8);
+                if(on)tab.Background=selectionSurface;
+                System.Windows.Automation.AutomationProperties.SetName(tab,"Sizes "+name);
+                tabs.Children.Add(tab);
+            }
+            card.Children.Add(tabs);
+            add(null,groups.First(g=>g.Name==resolutionTab).Items);
             return card;
         }
+        // The shape tab picked in Resolution (kept while the page is rebuilt).
+        string resolutionTab;
         // The whole chip lights while the pointer is on the size. The star beside it lights only itself.
         Border ResolutionChip(DisplayMode mode,DisplayMode currentMode,Action refresh)
         {

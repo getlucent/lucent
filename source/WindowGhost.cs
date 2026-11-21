@@ -57,13 +57,13 @@ namespace Lucent
             SetWindowPos(ghostHandle,new IntPtr(-1),box.Left,box.Top,width,height,NoActivate|ShowFlag);
             if(DwmRegisterThumbnail(ghostHandle,source,out thumbnail)!=0){thumbnail=IntPtr.Zero;ghost.Hide();return false;}
             int mine=++motion;
-            double length=away?170:210;
+            double length=away?230:300;
             Action<double> show=p=>
             {
                 // p: 0 is the window whole and in place, 1 is gone.
-                double scale=1-.07*p;
+                double scale=1-.06*p;
                 int w=(int)Math.Round(width*scale),h=(int)Math.Round(height*scale);
-                int x=(width-w)/2,y=(int)Math.Round((height-h)*.5+14*p);
+                int x=(width-w)/2,y=(int)Math.Round((height-h)*.5+10*p);
                 var properties=new ThumbnailProperties {Flags=DestinationFlag|OpacityFlag|VisibleFlag,Destination=new Box {Left=x,Top=y,Right=x+w,Bottom=y+h},Opacity=(byte)Math.Round(255*(1-p)),Visible=1};
                 DwmUpdateThumbnailProperties(thumbnail,ref properties);
             };
@@ -81,12 +81,18 @@ namespace Lucent
                     return;
                 }
                 double t=Math.Min(1,clock.Elapsed.TotalMilliseconds/length);
-                // Away it speeds up as it goes; coming back it slows down as it arrives.
-                double p=away?t*t*t:1-Math.Pow(1-t,3);
+                // Away it eases off gently (a softer start and end than a sharp speed-up); coming back it lands softly, slowing for a long time as it arrives.
+                double p=away?(1-Math.Cos(t*Math.PI))/2*(.35+.65*t):1-Math.Pow(1-t,4);
                 show(away?p:1-p);
                 if(t<1)return;
-                Stop();
+                if(away){Stop();if(done!=null)done();return;}
+                // Coming back, the real window is shown first and the picture taken away two frames later, once the window is drawn under it: taking the
+                // picture away first left a moment with neither on the screen, which flashed at the end of opening.
+                CompositionTarget.Rendering-=tick;tick=null;
                 if(done!=null)done();
+                int after=0;EventHandler settle=null;
+                settle=(s2,e2)=>{if(++after<3)return;CompositionTarget.Rendering-=settle;if(mine==motion)Stop();};
+                CompositionTarget.Rendering+=settle;
             };
             CompositionTarget.Rendering+=tick;
             return true;

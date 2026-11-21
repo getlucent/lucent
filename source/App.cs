@@ -379,6 +379,17 @@ namespace Lucent
             if(open)CloseOtherPlayers("big");
             bigPlayerOpen=open;
             ShowPlayerOpen(bigPlayerButton,open||bigPlayerWindow!=null);
+            // Over the full-window player the buttons' glass takes the player's own colors (the song's, seen through it) under a light dark veil;
+            // back on the page it wears the bar's color again.
+            if(dockGlass!=null&&playerBar!=null){dockGlass.Tint=open?dockPlayerTint:playerBar.Surface;ApplyGlassBlur();}
+            // Once the full-window player has finished opening, the app's backgrounds behind it are put away (they showed as a thin line along its edges and
+            // kept moving for nothing); they come back as soon as it starts to close.
+            if(open)
+            {
+                if(coverTimer==null){coverTimer=new System.Windows.Threading.DispatcherTimer {Interval=TimeSpan.FromMilliseconds(650)};coverTimer.Tick+=(s,e)=>{coverTimer.Stop();if(bigPlayerOpen)CoverBackdrops(true);};}
+                coverTimer.Stop();coverTimer.Start();
+            }
+            else{if(coverTimer!=null)coverTimer.Stop();CoverBackdrops(false);}
             if(open&&ambientTrack!=null)
             {
                 // The player starts from the song the app knows now (it may have been given an earlier one when it was warmed up, or the last time it was open).
@@ -392,7 +403,8 @@ namespace Lucent
         {
             if(button==null)return;
             button.BeginAnimation(OpacityProperty,null);
-            button.Opacity=open?1:.65;
+            // Still bright while the pointer is on it (it was just clicked), whatever it now opens or closes.
+            button.Opacity=open||button.IsMouseOver?1:.65;
         }
         // The window really goes away: from the tray menu, or because Windows is signing out or shutting down.
         bool exiting;
@@ -544,7 +556,7 @@ namespace Lucent
         void TintNotice()
         {
             var neutral=Color.FromRgb(46,46,48);
-            Color accent=Adaptive?mediaAccent:neutral;
+            Color accent=Adaptive?ColorAccent:neutral;
             double strength=Adaptive?Math.Max(0,Math.Min(1,preferences.ThemeIntensity)):0;
             double lift=accent==neutral?0:.20+.45*strength;
             var dark=Color.FromRgb(26,26,28);

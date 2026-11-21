@@ -20,16 +20,20 @@ namespace Lucent
         internal LiquidGlass(double cornerRadius)
         {
             radius=cornerRadius;
-            // The shadow under the glass: drawn once and kept as a picture, it never changes.
-            var shadow=new Border {CornerRadius=new CornerRadius(radius),Background=new SolidColorBrush(Color.FromArgb(150,0,0,0)),IsHitTestVisible=false,Margin=new Thickness(1,3,1,-1),
-                Effect=new DropShadowEffect {BlurRadius=18,ShadowDepth=4,Direction=270,Opacity=.55,Color=Colors.Black,RenderingBias=RenderingBias.Performance},CacheMode=new BitmapCache()};
+            // A soft shadow under the glass, drawn once and kept as a picture. The shape casting it sits well inside the glass, so no dark edge of it shows below.
+            var shadow=new Border {CornerRadius=new CornerRadius(radius),Background=new SolidColorBrush(Color.FromArgb(60,0,0,0)),IsHitTestVisible=false,Margin=new Thickness(4,4,4,3),
+                Effect=new DropShadowEffect {BlurRadius=20,ShadowDepth=3,Direction=270,Opacity=.35,Color=Colors.Black,RenderingBias=RenderingBias.Performance},CacheMode=new BitmapCache()};
             Children.Add(shadow);
+            // The blurred copy is kept as a picture on the graphics card, so it is made again only when what is behind the glass changes, not at every frame
+            // something else in the window moves (copying and blurring it each frame was most of the cost of a moving background).
             glass.Children.Add(blur);
-            // Dark glass: more of the dark laid on toward the bottom.
-            var tint=new LinearGradientBrush(new GradientStopCollection{new GradientStop(Color.FromArgb(118,22,22,28),0),new GradientStop(Color.FromArgb(150,10,10,14),1)},new Point(0,0),new Point(0,1));tint.Freeze();
-            glass.Children.Add(new Border {Background=tint,IsHitTestVisible=false});
+            // Light, see-through dark glass: a little more of the dark laid on toward the bottom.
+            var tint=new LinearGradientBrush(new GradientStopCollection{new GradientStop(Color.FromArgb(58,22,22,28),0),new GradientStop(Color.FromArgb(84,10,10,14),1)},new Point(0,0),new Point(0,1));tint.Freeze();
+            tintLayer=new Border {Background=tint,IsHitTestVisible=false};
+            glass.Children.Add(tintLayer);
             // The sheen: light falling on the glass from the top left, fading out by the middle.
-            var sheen=new LinearGradientBrush(new GradientStopCollection{new GradientStop(Color.FromArgb(34,255,255,255),0),new GradientStop(Color.FromArgb(8,255,255,255),.45),new GradientStop(Color.FromArgb(0,255,255,255),.7)},new Point(0,0),new Point(.35,1));sheen.Freeze();
+            // (It falls straight down: run corner to corner across a wide bar, its few faint levels of white spread into broad steps that showed as slanted lines.)
+            var sheen=new LinearGradientBrush(new GradientStopCollection{new GradientStop(Color.FromArgb(34,255,255,255),0),new GradientStop(Color.FromArgb(8,255,255,255),.45),new GradientStop(Color.FromArgb(0,255,255,255),.7)},new Point(0,0),new Point(0,1));sheen.Freeze();
             glass.Children.Add(new Border {Background=sheen,IsHitTestVisible=false});
             // A thin bright line just inside the top edge (the light the curved rim catches), and a fainter one along the bottom, as thick glass bends light at both edges.
             var top=new LinearGradientBrush(new GradientStopCollection{new GradientStop(Color.FromArgb(0,255,255,255),0),new GradientStop(Color.FromArgb(70,255,255,255),.25),new GradientStop(Color.FromArgb(70,255,255,255),.75),new GradientStop(Color.FromArgb(0,255,255,255),1)},new Point(0,0),new Point(1,0));top.Freeze();
@@ -43,6 +47,9 @@ namespace Lucent
             LayoutUpdated+=(s,e)=>Fit();
         }
         internal UIElement Content {get{return holder.Child;}set{holder.Child=value;}}
+        // The color laid over what is seen through the glass (dark by default); the player buttons use the player bar's own color so the two match.
+        readonly Border tintLayer;
+        internal Brush Tint {get{return tintLayer.Background;}set{tintLayer.Background=value;}}
         // What is seen through the glass: each source is copied for the strip behind the glass and blurred (the window's colors, then the moving colors on top).
         internal void SetSources(params Visual[] behind)
         {

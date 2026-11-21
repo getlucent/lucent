@@ -25,8 +25,47 @@ namespace Lucent
         bool readingPalette;
         string paletteTrack;
         byte[] paletteArtwork;
+        // The song's cover and its color. While the Vice Sunset theme is on, everything that takes its colors from the song gets the theme's instead.
         BitmapSource paletteBitmap;
         Color mediaAccent=Color.FromRgb(46,46,48);
+        // The cover and color the interface actually uses.
+        BitmapSource ColorBitmap {get{return Sunset?FlowingBackdrop.SunsetCover():paletteBitmap;}}
+        Color ColorAccent {get{return Sunset?SunsetAccent:mediaAccent;}}
+        static Color? sunsetAccent;
+        static Color SunsetAccent {get{if(sunsetAccent==null)sunsetAccent=Design.Palette(Design.TowardDominant(FlowingBackdrop.SunsetCover()));return sunsetAccent.Value;}}
+        // The theme shows unless performance mode is on or a custom background takes the colors (and never in the tests' window, which checks the song's colors).
+        // The Vice Sunset: always on through November 2026; from December 1st a setting, off unless switched on. The date is read once at each launch.
+        static readonly DateTime launchDate=DateTime.Now;
+        internal bool SunsetIsSetting {get{return Preferences.SunsetIsSetting(launchDate);}}
+        internal bool SunsetWanted {get{return preferences!=null&&preferences.SunsetOn(launchDate);}}
+        internal void SetSunsetWanted(bool on){preferences.SunsetSwitchedOn=on;ApplySunsetTheme();SaveSoon();}
+        // The Vice background shows only while no media is detected at all: any media (playing or paused) brings the usual colors (the logo and the app icon stay
+        // Vice either way).
+        bool Sunset {get{return SunsetWanted&&ambientTrack==null&&paletteBitmap==null&&!preferences.PerformanceMode&&!(customBackgroundLoaded&&preferences.Artwork)&&!TestMode;}}
+        void ApplySunsetTheme(){flowCover=null;UpdateAmbientColor();ApplySunsetLogo();}
+        // The logo in the tab bar, the window and taskbar icon and the tray icon wear the sunset tile while the theme is chosen.
+        Border navLogo;
+        bool? logoSunset;
+        System.Drawing.Icon sunsetTrayIcon,plainTrayIcon;
+        internal void ApplySunsetLogo()
+        {
+            bool on=SunsetWanted&&!TestMode;
+            if(logoSunset==on)return;
+            logoSunset=on;
+            try
+            {
+                if(navLogo!=null)navLogo.Child=on?(UIElement)Art.SunsetLogo(22):Art.Logo(22);
+                string file=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Lucent.ico");
+                Icon=on?(ImageSource)BitmapDecoder.Create(new MemoryStream(ResolutionSwitcher.Brand.SunsetIco()),BitmapCreateOptions.None,BitmapCacheOption.OnLoad).Frames[0]:BitmapFrame.Create(new Uri(file));
+                if(tray!=null)
+                {
+                    if(on&&sunsetTrayIcon==null)sunsetTrayIcon=ResolutionSwitcher.Brand.SunsetIcon(System.Windows.Forms.SystemInformation.SmallIconSize.Width);
+                    if(!on&&plainTrayIcon==null)plainTrayIcon=new System.Drawing.Icon(file);
+                    tray.Icon=on?sunsetTrayIcon:plainTrayIcon;
+                }
+            }
+            catch(Exception){}
+        }
         Button settingsRailButton;
         Grid settingsLayer;
         Border settingsCard;
@@ -85,7 +124,7 @@ namespace Lucent
         {
             // The pages are a slim strip of tabs along the top: the logo, one tab per page, and the settings gear at the end.
             var items=new StackPanel {Orientation=Orientation.Horizontal};
-            var logo=new Border {Width=34,Height=28,Margin=new Thickness(2,0,4,0),Background=Brushes.Transparent,Cursor=Cursors.Hand,Child=Art.Logo(22),ToolTip="Lucent"};
+            var logo=navLogo=new Border {Width=34,Height=28,Margin=new Thickness(2,0,4,0),Background=Brushes.Transparent,Cursor=Cursors.Hand,Child=Art.Logo(22),ToolTip="Lucent"};
             logo.MouseLeftButtonUp+=(s,e)=>ShowPage("Home");
             items.Children.Add(logo);
             foreach(string name in new[]{"Home","Video","Resolution","Crosshair","Profiles","Visual tools","Game Boost"})items.Children.Add(ModernNavButton(name));
@@ -105,7 +144,7 @@ namespace Lucent
             tabGlass=new LiquidGlass(12) {Content=new Border {Padding=new Thickness(3,3,4,3),Child=layers}};
             tabStrip=new Border {Height=34,VerticalAlignment=VerticalAlignment.Top,HorizontalAlignment=HorizontalAlignment.Left,Child=tabGlass};
         }
-        Border tabStrip,tabPill;StackPanel tabItems;LiquidGlass tabGlass,buttonsGlass;readonly TranslateTransform tabPillMove=new TranslateTransform();readonly ScaleTransform tabPillStretch=new ScaleTransform(1,1);
+        Border tabStrip,tabPill;StackPanel tabItems;LiquidGlass tabGlass,buttonsGlass,dockGlass,barGlass;readonly TranslateTransform tabPillMove=new TranslateTransform();readonly ScaleTransform tabPillStretch=new ScaleTransform(1,1);
         // Slides the pill under the tab of the page in view (or puts it there at once).
         void MoveTabPill(bool animate)
         {
@@ -235,7 +274,7 @@ namespace Lucent
         }
         void BuildModernBody()
         {
-            var body=Compactable(new DockPanel {Margin=new Thickness(16,8,16,14)});Grid.SetColumn(body,1);workspace.Children.Add(body);
+            var body=Compactable(new DockPanel {Margin=new Thickness(16,8,16,14)});Grid.SetColumn(body,1);workspace.Children.Add(body);modernBody=body;
             var top=new DockPanel {Height=42,LastChildFill=true,Margin=new Thickness(0,0,0,4)};
             DockPanel.SetDock(top,Dock.Top);
             body.Children.Add(top);
@@ -266,6 +305,7 @@ namespace Lucent
             Panel.SetZIndex(playerDock,9);
             Design.SetStill(playerDock,true);
             root.Children.Add(playerDock);
+            PlaceDock();
             playerArrow=PlayerDockAction("PlayerBar","Show player bar","Toggle player bar",TogglePlayerBar,()=>playerBarShown,0);
             // The toggle shows a window with an empty strip along its bottom, which fills in while the bar is up.
             barOff=(Viewbox)playerArrow.Content;
@@ -290,7 +330,12 @@ namespace Lucent
             historyButton=PlayerDockAction("Queue","Recently played","Toggle recently played",()=>historyPanel.Set(!historyPanel.IsOpen),()=>historyPanel.IsOpen,96);
             historyPanel.OpenChanged+=open=>ShowPlayerOpen(historyButton,open);
             dockButtons.Children.Add(historyButton);
-            playerDock.Child=new Border {Background=dockPillBrush,CornerRadius=new CornerRadius(10),Padding=new Thickness(5,3,5,3),Child=dockButtons};
+            // The buttons sit on the same liquid glass as the top bar; it fades once the bar is up (the bar grows out of it and is behind them then).
+            dockGlass=new LiquidGlass(10);
+            var dockFace=new Grid();
+            dockFace.Children.Add(dockGlass);
+            dockFace.Children.Add(new Border {Background=dockPillBrush,CornerRadius=new CornerRadius(10),Padding=new Thickness(5,3,5,3),Child=dockButtons});
+            playerDock.Child=dockFace;
             // The big player covers the whole window, the sidebar included, with its own window buttons.
             var overlayButtons=new StackPanel {Orientation=Orientation.Horizontal};
             var popOut=WindowAction("PopOut",PopOutBigPlayer);
@@ -328,6 +373,22 @@ namespace Lucent
             playerBar.SetGlass(GlassOn);
             playerBar.SetBlurSources(ambientBackdrop,flowHost,pageHost);
             foreach(var glass in new[]{tabGlass,buttonsGlass})if(glass!=null){glass.SetSources(ambientBackdrop,flowHost);glass.BlurOn=GlassOn;}
+            // The buttons' glass sees what the bar sees (and the full-window player when it is open), tinted with the bar's own color, so pill and bar are one material.
+            if(dockGlass!=null){dockGlass.SetSources(ambientBackdrop,flowHost,pageHost);dockGlass.BlurOn=GlassOn;dockGlass.Tint=playerBar.Surface;}
+            // The bar wears exactly the buttons' glass: the same blur of what is behind, the bar's color over it and the same light white veil, sheen and rim.
+            barGlass=new LiquidGlass(14);
+            barGlass.SetSources(ambientBackdrop,flowHost,pageHost);barGlass.BlurOn=GlassOn;barGlass.Tint=playerBar.Surface;
+            var barFace=new Grid {IsHitTestVisible=false};
+            barFace.Children.Add(barGlass);
+            barFace.Children.Add(new Border {Background=MakeFrozen(Color.FromArgb(22,255,255,255)),CornerRadius=new CornerRadius(14),IsHitTestVisible=false});
+            playerBar.UseFace(barFace);
+            // The bar grows out of the buttons' glass when it opens, and shrinks back into it.
+            playerBar.GrowFrom=()=>
+            {
+                if(playerDock==null||playerDock.Visibility!=Visibility.Visible||playerDock.ActualWidth<=0||Design.Instant)return null;
+                try{return playerDock.TransformToVisual(playerBar).TransformBounds(new Rect(0,0,playerDock.ActualWidth,playerDock.ActualHeight));}
+                catch(InvalidOperationException){return null;}
+            };
             pageHost.SizeChanged+=(s,e)=>{UpdatePageClip();playerBar.FitBlur();};
             playerBar.LayoutUpdated+=(s,e)=>playerBar.FitBlur();
             pageArea=new Grid();
@@ -355,12 +416,24 @@ namespace Lucent
         }
         const double WindowInk=Design.WindowInk;
         Border playerDock;
+        DockPanel modernBody;
+        // The player buttons float over the right end of the player bar, so they follow the page's margins (smaller in compact mode).
+        internal void PlaceDock()
+        {
+            if(playerDock==null)return;
+            var m=modernBody!=null?modernBody.Margin:new Thickness(16,8,16,14);
+            playerDock.Margin=new Thickness(0,0,m.Right+PlayerBar.BarRight,24+PlayerBar.BarBottom+7-(14-m.Bottom));
+        }
         BigPlayerView bigPlayerView;
         PlayerBar playerBar;
         Button playerArrow,historyButton;
         HistoryPanel historyPanel;
         Viewbox barOff,barOn;
         readonly SolidColorBrush dockPillBrush=new SolidColorBrush(Color.FromArgb(22,255,255,255));
+        static readonly SolidColorBrush dockPlayerTint=MakeFrozen(Color.FromArgb(70,12,12,14));
+        static SolidColorBrush MakeFrozen(Color color){var brush=new SolidColorBrush(color);brush.Freeze();return brush;}
+        static readonly System.Windows.Media.Effects.DropShadowEffect dockGlow=MakeGlow();
+        static System.Windows.Media.Effects.DropShadowEffect MakeGlow(){var glow=new System.Windows.Media.Effects.DropShadowEffect {Color=Colors.White,ShadowDepth=0,BlurRadius=9,Opacity=.55,RenderingBias=System.Windows.Media.Effects.RenderingBias.Performance};glow.Freeze();return glow;}
         bool playerDockShown,bigPlayerOpen,playerBarOpen,playerBarShown;
         DateTime lastMediaSeen=DateTime.MinValue;
         // A tooltip opens to the left, so a button further right clears its neighbor by tipClearance.
@@ -371,27 +444,30 @@ namespace Lucent
             var face=new FrameworkElementFactory(typeof(Border),"Face");
             face.SetValue(Border.BackgroundProperty,Brushes.Transparent);
             face.SetValue(Border.CornerRadiusProperty,new CornerRadius(8));
-            var content=new FrameworkElementFactory(typeof(ContentPresenter));
+            var content=new FrameworkElementFactory(typeof(ContentPresenter),"Icon");
             content.SetValue(FrameworkElement.HorizontalAlignmentProperty,HorizontalAlignment.Center);
             content.SetValue(FrameworkElement.VerticalAlignmentProperty,VerticalAlignment.Center);
             face.AppendChild(content);
             template.VisualTree=face;
             var hover=new Trigger {Property=UIElement.IsMouseOverProperty,Value=true};
-            hover.Setters.Add(new Setter(Border.BackgroundProperty,new SolidColorBrush(Color.FromArgb(38,255,255,255)),"Face"));
             template.Triggers.Add(hover);
             return template;
         }
         Button PlayerDockAction(string icon,string tip,string name,Action toggle,Func<bool> isOpen,double tipClearance)
         {
-            var button=new Button{Content=Design.Icon(icon,18),Style=(Style)Resources["RailAction"],Template=DockTemplate(),Width=32,Height=28,Opacity=.65};
+            var button=new Button{Content=Design.Icon(icon,18),Style=(Style)Resources["RailAction"],Template=DockTemplate(),Width=32,Height=28,Opacity=.65,Focusable=false};
             button.ToolTip=RailTooltip(tip,button,true,null,tipClearance,true);   // the title appears above the icon
             ToolTipService.SetInitialShowDelay(button,500);
             ToolTipService.SetBetweenShowDelay(button,500);
             System.Windows.Automation.AutomationProperties.SetName(button,name);
             button.Click+=(s,e)=>toggle();
             // The icon is bright and the highlight shows while the pointer is over it; nothing moves or eases.
-            button.MouseEnter+=(s,e)=>{button.BeginAnimation(OpacityProperty,null);button.Opacity=1;};
-            button.MouseLeave+=(s,e)=>{button.BeginAnimation(OpacityProperty,null);button.Opacity=isOpen()?1:.65;};
+            // No highlight behind the icon: while the pointer is over it the icon is bright and glows softly. (It takes no keyboard focus, so Space does not
+            // press it again after a click.) Opening or closing a player from it keeps that look while the pointer is still on it.
+            Action hover=()=>{button.BeginAnimation(OpacityProperty,null);button.Opacity=1;button.Effect=dockGlow;};
+            button.MouseEnter+=(s,e)=>hover();
+            button.Click+=(s,e)=>Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input,new Action(()=>{if(button.IsMouseOver)hover();}));
+            button.MouseLeave+=(s,e)=>{button.BeginAnimation(OpacityProperty,null);button.Opacity=isOpen()?1:.65;button.Effect=null;};
             return button;
         }        // The player buttons only appear while there is media to control. A short grace period
         // and any open player keep them from flickering away between tracks.
@@ -417,12 +493,19 @@ namespace Lucent
         }
         Button WindowAction(string name,Action action){return Design.WindowButton((Style)Resources["ChromeAction"],name,action);}
         // Only one player is on screen at a time: opening one closes the others, and the bar steps aside until they are gone.
-        bool PlayerElsewhere {get{return bigPlayerOpen||bigPlayerWindow!=null||mediaPlayer!=null;}}
+        // Switching from one player to another counts too: while the old one closes (before the new one exists) the bar must not pop up in between.
+        bool PlayerElsewhere {get{return bigPlayerOpen||bigPlayerWindow!=null||mediaPlayer!=null||switchingPlayers;}}
+        bool switchingPlayers;
         void CloseOtherPlayers(string keep)
         {
-            if(keep!="big")SetBigPlayerOpen(false);
-            if(keep!="window"&&bigPlayerWindow!=null)bigPlayerWindow.Close();
-            if(keep!="mini"&&mediaPlayer!=null)mediaPlayer.Close();
+            switchingPlayers=keep=="big"||keep=="window"||keep=="mini";
+            try
+            {
+                if(keep!="big")SetBigPlayerOpen(false);
+                if(keep!="window"&&bigPlayerWindow!=null)bigPlayerWindow.Close();
+                if(keep!="mini"&&mediaPlayer!=null)mediaPlayer.Close();
+            }
+            finally{switchingPlayers=false;}
         }
         void TogglePlayerBar()
         {
@@ -474,8 +557,28 @@ namespace Lucent
                 if(ReferenceEquals(holder,content)&&!Design.Instant)holder.BeginAnimation(MarginProperty,new ThicknessAnimation(new Thickness(0,PageTop,0,pageInset),TimeSpan.FromMilliseconds(show?260:200)){EasingFunction=new CubicEase{EasingMode=EasingMode.EaseOut}});
                 else{holder.BeginAnimation(MarginProperty,null);holder.Margin=new Thickness(0,PageTop,0,pageInset);}
             }
-            dockPillBrush.BeginAnimation(SolidColorBrush.ColorProperty,new ColorAnimation(Color.FromArgb(show?(byte)0:(byte)22,255,255,255),TimeSpan.FromMilliseconds(220)));
-        }        // Centering on the cursor's monitor would hang the window off a smaller or portrait display.
+            // The pill hands over to the bar without ever showing inside it: its glass and border go the moment the bar starts growing (the bar starts as exactly
+            // the pill's shape), and come back only once the bar has shrunk all the way into it. (Fading them across the motion showed a box inside the bar.)
+            if(show)SetPillFace(false,true);
+            else if(playerBar.ShrinksIntoPill)playerBar.Shrunk=()=>{if(!playerBarShown)SetPillFace(true,true);};
+            else SetPillFace(true);
+        }
+        // The pill's own face: its glass (with its border) and its light veil. Hidden at once when the bar grows out of it; shown with a short fade when the
+        // bar has shrunk into it (the bar fades out over it at the same time), so the border does not appear in a flash.
+        void SetPillFace(bool on,bool fade=false)
+        {
+            var veil=Color.FromArgb(on?(byte)22:(byte)0,255,255,255);
+            if(fade&&!Design.Instant)
+            {
+                var span=TimeSpan.FromMilliseconds(PlayerBar.PillHandOver);
+                dockPillBrush.BeginAnimation(SolidColorBrush.ColorProperty,PlayerBar.Smooth(new ColorAnimation(veil,on?span:TimeSpan.FromMilliseconds(110)){EasingFunction=new SineEase{EasingMode=EasingMode.EaseInOut}}));
+                if(dockGlass!=null)dockGlass.BeginAnimation(OpacityProperty,PlayerBar.Smooth(new DoubleAnimation(dockGlass.Opacity,on?1:0,on?span:TimeSpan.FromMilliseconds(110)){EasingFunction=new SineEase{EasingMode=EasingMode.EaseInOut}}));
+                return;
+            }
+            dockPillBrush.BeginAnimation(SolidColorBrush.ColorProperty,null);dockPillBrush.Color=veil;
+            if(dockGlass!=null){dockGlass.BeginAnimation(OpacityProperty,null);dockGlass.Opacity=on?1:0;}
+        }
+        // Centering on the cursor's monitor would hang the window off a smaller or portrait display.
         void AvoidTooSmallScreen()
         {
             var area=System.Windows.Forms.Screen.FromPoint(System.Windows.Forms.Cursor.Position).WorkingArea;
@@ -489,11 +592,18 @@ namespace Lucent
         {
             Design.EnableSliderJump();
             InstallWindowMotion();
+            logoSunset=null;ApplySunsetLogo();
             root.Children.Insert(0,ambientBackdrop);Panel.SetZIndex(ambientBackdrop,0);
             // Moving colors sit just above the still ones, under everything else, with a little shade so text stays easy to read.
             flowHost.Children.Add(flowBackdrop);
+            flowHost.Children.Add(sunsetBackdrop);
             root.Children.Insert(1,flowHost);Panel.SetZIndex(flowHost,1);
-            StateChanged+=(s,e)=>flowBackdrop.Hold(WindowState==WindowState.Minimized);
+            StateChanged+=(s,e)=>
+            {
+                flowBackdrop.Hold(WindowState==WindowState.Minimized);
+                // The sunset rests while the window is minimized.
+                if(WindowState==WindowState.Minimized)sunsetBackdrop.Stop();else if(sunsetBackdrop.IsVisible)sunsetBackdrop.Start();
+            };
             // While the window is being dragged larger or smaller the colors rest, so every frame goes to resizing.
             var resizeSettle=new DispatcherTimer {Interval=TimeSpan.FromMilliseconds(220)};
             resizeSettle.Tick+=(s,e)=>{resizeSettle.Stop();flowBackdrop.Hold(WindowState==WindowState.Minimized);WakePages();};
@@ -622,7 +732,8 @@ namespace Lucent
                 bitmap.EndInit();
                 bitmap.Freeze();
                 paletteBitmap=bitmap;
-                mediaAccent=Design.Palette(PaletteField);
+                // The song's own color, worked out from its cover even while the theme stands in for it.
+                mediaAccent=Design.Palette(Sunset?Design.TowardDominant(bitmap):PaletteField);
             }
             UpdateAmbientColor();
         }
@@ -630,7 +741,7 @@ namespace Lucent
         // shown at the same moment the colors start.
         void HoldForColors(MediaTrack track,Action show)
         {
-            if(TestMode||track==null||preferences.PerformanceMode||!Adaptive||(customBackgroundLoaded&&preferences.Artwork)||!IsVisible||WindowState==WindowState.Minimized){show();return;}
+            if(TestMode||track==null||preferences.PerformanceMode||!Adaptive||Sunset||(customBackgroundLoaded&&preferences.Artwork)||!IsVisible||WindowState==WindowState.Minimized){show();return;}
             try{PrepareTrackColors(track);}catch(Exception){show();return;}
             colorSync.AfterFlush(show);
         }
@@ -639,6 +750,7 @@ namespace Lucent
         // The same colors as the players: the same cover, light, color and shade (only how fast it drifts differs), so the app, the bar and every player match.
         readonly FlowingBackdrop flowBackdrop=new FlowingBackdrop {Player=true,LightCap=185,Lively=true,Speed=1.9,Travel=1.5,Shade=.45};
         readonly Grid flowHost=new Grid {Visibility=Visibility.Collapsed,IsHitTestVisible=false};
+        readonly SunsetBackdrop sunsetBackdrop=new SunsetBackdrop {Visibility=Visibility.Collapsed};
         BitmapSource flowCover;
         // The cover as the backdrops see it: its minor colors pulled to the one it has the most of. (The sections keep following the cover's average.)
         BitmapSource fieldSource,fieldResult;
@@ -646,38 +758,73 @@ namespace Lucent
         {
             get
             {
+                // The sunset keeps all its colors (pulling them toward the main one would leave one flat pink).
+                if(Sunset)return ColorBitmap;
                 if(paletteBitmap==null)return null;
                 if(!ReferenceEquals(fieldSource,paletteBitmap)){fieldSource=paletteBitmap;fieldResult=Design.TowardDominant(paletteBitmap);}
                 return fieldResult;
             }
         }
+        // What the glass surfaces blur: the window's colors, the moving colors on top (the Vice Sunset itself when it is on: blurring that smooth gradient
+        // gives the same frosted look as with the song's colors, where blurring the small still copy beneath it showed faint lines) and the page.
+        // The one exception is the buttons' glass over the full-window player: copying that player at every frame made it lag, so it takes a dark veil there.
+        void RefreshGlassSources(bool sunset){ApplyGlassBlur();}
+        void ApplyGlassBlur()
+        {
+            foreach(var glass in new[]{tabGlass,buttonsGlass,barGlass})if(glass!=null)glass.BlurOn=GlassOn;
+            if(dockGlass!=null)dockGlass.BlurOn=GlassOn&&!bigPlayerOpen;
+        }
         // True when the moving colors are being worked out for a new cover.
+        // The backgrounds put away while the full-window player covers everything, and brought back when it closes.
+        bool backdropsCovered;
+        System.Windows.Threading.DispatcherTimer coverTimer;
+        void CoverBackdrops(bool covered)
+        {
+            if(covered==backdropsCovered)return;
+            backdropsCovered=covered;
+            ambientBackdrop.Visibility=covered?Visibility.Hidden:Visibility.Visible;
+            UpdateFlowBackdrop();
+        }
         bool UpdateFlowBackdrop()
         {
+            // Behind the open full-window player nothing of the backgrounds is drawn.
+            if(backdropsCovered){flowHost.Visibility=Visibility.Hidden;flowBackdrop.SetActive(false);return false;}
             bool started=false;
             bool allowed=preferences.AnimatedBackground&&!preferences.PerformanceMode&&!(customBackgroundLoaded&&preferences.Artwork);
-            bool music=allowed&&Adaptive&&paletteBitmap!=null;
+            bool music=allowed&&Adaptive&&ColorBitmap!=null;
             // With nothing playing (or the music's colors off) the idle colors drift instead: deep blue, indigo and teal.
             // (Not in the tests' window, which never pauses the colors the way the app does while settings move.)
             bool idle=allowed&&!music&&!TestMode;
             bool want=music||idle;
+            // The Vice Sunset theme has its own moving background (the GTA VI gradient) in place of the song's colors.
+            bool sunset=Sunset&&allowed;
+            sunsetBackdrop.Visibility=sunset?Visibility.Visible:Visibility.Collapsed;
+            flowBackdrop.Visibility=sunset?Visibility.Collapsed:Visibility.Visible;
+            if(sunset)
+            {
+                flowHost.Visibility=Visibility.Visible;flowHost.Opacity=1;
+                flowBackdrop.SetActive(false);
+                RefreshGlassSources(true);
+                return false;
+            }
             flowHost.Visibility=want?Visibility.Visible:Visibility.Collapsed;
             if(want)
             {
-                var field=music?paletteBitmap:FlowingBackdrop.IdleCover();
+                var field=music?ColorBitmap:FlowingBackdrop.IdleCover();
                 if(!ReferenceEquals(flowCover,field)){flowCover=field;started=flowBackdrop.SetCover(field);}
                 // The moving colors are a fixed amount, not tied to the color amount, which would have left them nearly invisible.
                 flowHost.Opacity=1;
             }
             // The colors keep drifting while the song is paused (they only rest when nothing is loaded): freezing the moment you paused looked broken.
             flowBackdrop.SetActive(want&&(ambientTrack!=null||idle));
+            RefreshGlassSources(false);
             return started;
         }
         // The window's colors, the moving colors, the bar's band and the tint of the sections and the bar all follow the cover, and they change together
         // (the sections used to change first, because the others take a moment to work out).
         readonly ColorSync colorSync=new ColorSync();
         // The colors of what is playing show in the interface unless adaptive colors are off, or performance mode (which turns off what is only for show).
-        bool Adaptive {get{return preferences.AdaptiveTheme&&preferences.MediaControls&&!preferences.PerformanceMode;}}
+        bool Adaptive {get{return (preferences.AdaptiveTheme&&preferences.MediaControls||Sunset)&&!preferences.PerformanceMode;}}
         // Media controls switched off or on: off closes every player, hides the player buttons and the bar, and drops the music's colors; on, the next read brings them back.
         void ApplyMediaControls()
         {
@@ -700,24 +847,24 @@ namespace Lucent
             Design.Instant=preferences.PerformanceMode;
             if(playerBar==null)return;
             playerBar.Backdrop.On=!preferences.PerformanceMode;
-            playerBar.SetGlass(GlassOn);foreach(var glass in new[]{tabGlass,buttonsGlass})if(glass!=null)glass.BlurOn=GlassOn;
+            playerBar.SetGlass(GlassOn);ApplyGlassBlur();
             UpdatePageClip();
             UpdateAmbientColor();
         }
         void UpdateAmbientColor()
         {
             // Surfaces are plain white veils, so the backdrop alone carries the color.
-            Color accent=Adaptive?customBackgroundLoaded&&preferences.Artwork?animatedBackground.AccentColor:mediaAccent:Color.FromRgb(46,46,48);
+            Color accent=Adaptive?customBackgroundLoaded&&preferences.Artwork?animatedBackground.AccentColor:ColorAccent:Color.FromRgb(46,46,48);
             RefreshTabGlow();
             double strength=Math.Max(0,Math.Min(1,preferences.ThemeIntensity));
-            bool colored=Adaptive&&(paletteArtwork!=null||customBackgroundLoaded||mediaAccent!=Color.FromRgb(46,46,48));
+            bool colored=Adaptive&&(paletteArtwork!=null||customBackgroundLoaded||ColorAccent!=Color.FromRgb(46,46,48));
             colorSync.Enabled=!TestMode&&!preferences.PerformanceMode&&!snapColors;
             ambientBackdrop.Sync=flowBackdrop.Sync=colorSync;
             if(playerBar!=null)playerBar.Backdrop.Sync=colorSync;
             int round=colorSync.Begin(),waiting=0;
             if(ambientBackdrop.SetPalette(accent,strength,colored,Adaptive&&!(customBackgroundLoaded&&preferences.Artwork)?PaletteField:null))waiting++;
             // The sections follow what the cover is made of as a whole, not its most colorful patch (a black cover with a little green is still a dark cover).
-            Color tone=colored&&paletteBitmap!=null&&Adaptive&&!(customBackgroundLoaded&&preferences.Artwork)?Design.Average(paletteBitmap):accent;
+            Color tone=colored&&ColorBitmap!=null&&Adaptive&&!(customBackgroundLoaded&&preferences.Artwork)?Design.Average(ColorBitmap):accent;
             if(playerBar!=null&&playerBar.Backdrop.SetCover(Adaptive&&!(customBackgroundLoaded&&preferences.Artwork)?PaletteField:null,accent,colored,strength))waiting++;
             if(UpdateFlowBackdrop())waiting++;
             // The tint of the sections and of the bar begins with the others (at once when none of them has anything new to work out).
@@ -725,7 +872,10 @@ namespace Lucent
             colorSync.Expect(round,waiting,()=>
             {
                 UpdateSurfacePalette(accent,tint,tone);
-                if(playerBar!=null)TransitionColor(playerBar.Surface,SolidColorBrush.ColorProperty,PlayerBar.SurfaceColor(tone,tint,band,glassy));
+                // The player bar (and the buttons' glass, which shares its color) always follows the song, even while the Vice Sunset colors the rest of the app.
+                Color barTone=tone;double barTint=tint;
+                if(Sunset){bool song=paletteBitmap!=null;barTone=song?Design.Average(paletteBitmap):Color.FromRgb(46,46,48);barTint=song?Math.Max(strength,.6):0;}
+                if(playerBar!=null)TransitionColor(playerBar.Surface,SolidColorBrush.ColorProperty,PlayerBar.SurfaceColor(barTone,barTint,band,glassy));
             });
         }
         readonly SolidColorBrush optionSurface=new SolidColorBrush(Color.FromRgb(32,32,33));
@@ -981,8 +1131,8 @@ namespace Lucent
             if(switching)
             {
                 var rise=(TranslateTransform)settingsContent.RenderTransform;
-                Design.Animate(settingsContent,OpacityProperty,0,1,220);
-                rise.BeginAnimation(TranslateTransform.YProperty,new DoubleAnimation(10,0,TimeSpan.FromMilliseconds(260)){EasingFunction=new CubicEase {EasingMode=EasingMode.EaseOut}});
+                settingsContent.BeginAnimation(OpacityProperty,Design.Instant?null:PlayerBar.Smooth(new DoubleAnimation(0,1,TimeSpan.FromMilliseconds(240)){EasingFunction=new SineEase{EasingMode=EasingMode.EaseOut}}));if(Design.Instant)settingsContent.Opacity=1;
+                rise.BeginAnimation(TranslateTransform.YProperty,PlayerBar.Smooth(new DoubleAnimation(10,0,TimeSpan.FromMilliseconds(380)){EasingFunction=new PlayerBar.SpringEase(1,.95)}));
             }
             if(settingsScroll!=null)settingsScroll.ScrollToVerticalOffset(0);
         }
@@ -1016,8 +1166,8 @@ namespace Lucent
             if(switching)
             {
                 var rise=(TranslateTransform)settingsContent.RenderTransform;
-                Design.Animate(settingsContent,OpacityProperty,0,1,220);
-                rise.BeginAnimation(TranslateTransform.YProperty,new DoubleAnimation(10,0,TimeSpan.FromMilliseconds(260)){EasingFunction=new CubicEase {EasingMode=EasingMode.EaseOut}});
+                settingsContent.BeginAnimation(OpacityProperty,Design.Instant?null:PlayerBar.Smooth(new DoubleAnimation(0,1,TimeSpan.FromMilliseconds(240)){EasingFunction=new SineEase{EasingMode=EasingMode.EaseOut}}));if(Design.Instant)settingsContent.Opacity=1;
+                rise.BeginAnimation(TranslateTransform.YProperty,PlayerBar.Smooth(new DoubleAnimation(10,0,TimeSpan.FromMilliseconds(380)){EasingFunction=new PlayerBar.SpringEase(1,.95)}));
             }
             settingsHeading.Text=name;
             settingsDescription.Text=SettingsBlurb(name);
@@ -1142,10 +1292,11 @@ namespace Lucent
                 if(++frames<2)return;CompositionTarget.Rendering-=begin;
                 double from=(double)GetValue(SettingsMotionProperty),to=open?1:0;
                 // A partial reversal takes proportionally less time at the same pace.
-                var length=TimeSpan.FromMilliseconds(Math.Max(80,(open?320:230)*Math.Abs(to-from)));
+                var length=TimeSpan.FromMilliseconds(Math.Max(90,(open?380:280)*Math.Abs(to-from)));
                 var motion=new DoubleAnimationUsingKeyFrames();
                 motion.KeyFrames.Add(new LinearDoubleKeyFrame(from,KeyTime.FromTimeSpan(TimeSpan.Zero)));
-                motion.KeyFrames.Add(new SplineDoubleKeyFrame(to,KeyTime.FromTimeSpan(length),open?new KeySpline(.25,.8,.3,1):new KeySpline(.25,.2,.25,1)));
+                motion.KeyFrames.Add(new SplineDoubleKeyFrame(to,KeyTime.FromTimeSpan(length),open?new KeySpline(.2,.9,.25,1):new KeySpline(.4,0,.2,1)));
+                PlayerBar.Smooth(motion);
                 motion.Completed+=(c,d)=>
                 {
                     if(transition!=settingsTransition)return;

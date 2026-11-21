@@ -33,6 +33,7 @@ namespace Lucent
         {
             bool on=preferences.Compact;
             foreach(var item in compactItems)Squeeze(item,on);
+            PlaceDock();
         }
     }
 }

@@ -46,8 +46,9 @@ namespace Lucent
             number("Screen dim","Dim the screen, 0–85%","Dim",new[]{"darker","brightness"},0,85,"%",v=>slide("Screen Dim",v));
             plain("Neutral colors","Vibrance 100%, no red filter, no dim","Color",new[]{"reset","normal","default","colors","colours"},a=>{slide("Vibrance",100);slide("Red Filter",0);slide("Screen Dim",0);});
             toggle("Crosshair","Switch the crosshair on or off","Crosshair",new[]{"aim","dot","reticle"},()=>crosshair!=null,ToggleCrosshair);
-            toggle("Dark Boost","See into dark corners","Visual tools",new[]{"shadows","dark","gamma","boost"},()=>current.DarkEnabled,ToggleDarkBoost);
-            number("Dark Boost strength","How strong Dark Boost is, 0–100","Visual tools",new[]{"shadows","gamma"},0,100,"",v=>{if(!current.DarkEnabled&&preferences.RiskAccepted)ToggleDarkBoost();slide("Strength",v);});
+            toggle("Night Vision","See into dark corners","Visual tools",new[]{"shadows","dark","gamma","boost"},()=>current.DarkEnabled,ToggleDarkBoost);
+            number("Night Vision strength","How strong Night Vision is, 0–100","Visual tools",new[]{"shadows","gamma"},0,100,"",v=>{if(!current.DarkEnabled&&preferences.RiskAccepted)ToggleDarkBoost();slide("Strength",v);});
+            if(SunsetIsSetting)toggle("Vice Sunset theme","The Vice logo and icon, and the sunset while nothing plays","Color",new[]{"gta","vice","theme","sunset","colors"},()=>SunsetWanted,()=>SetSunsetWanted(!SunsetWanted));
             toggle("Zoom","Zoom in on the middle of the screen","Search",new[]{"magnify","scope","sniper"},()=>zoomed,ToggleZoom);
             plain("Switch resolution","Swap between your two resolutions","Swap",new[]{"display","stretched","res"},a=>{TogglePair();UpdateHome();});
             plain("Desktop settings","Go back to your own settings (no profile)","Profiles",new[]{"profile","default"},a=>LoadLook(preferences.Desktop,"Desktop"));

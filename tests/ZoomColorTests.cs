@@ -48,6 +48,6 @@ class ZoomColorTests
             Console.WriteLine("Maximum color difference "+worst.ToString("0.00000"));
             if(worst>.025)throw new Exception("Zoom color correction exceeded tolerance");
         }
-        Console.WriteLine("PASS: 6000 color samples including clipped dark boost, 300% vibrance, dim and red-only.");
+        Console.WriteLine("PASS: 6000 color samples including clipped night vision, 300% vibrance, dim and red-only.");
     }
 }

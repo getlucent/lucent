@@ -26,13 +26,16 @@ namespace Lucent
         bool player;
         internal bool Player {get{return player;}set{if(value==player)return;player=value;Background=new SolidColorBrush(value?Color.FromRgb(5,5,6):Color.FromRgb(13,13,16));grain.Visibility=value?Visibility.Visible:Visibility.Collapsed;Fit();Rebuild();}}
         // A very fine grain over the finished picture: dark, slowly changing colors are drawn in 8-bit steps, and the steps show as faint blocks (a pixelated mist);
-        // the grain breaks them up. It is only a level or two, so it does not read as texture.
+        // a fine dither breaks them up without reading as texture.
         readonly Border grain=new Border {Background=MakeGrain(),IsHitTestVisible=false,Visibility=Visibility.Collapsed};
         static Brush MakeGrain()
         {
-            const int Side=128;
-            var random=new Random(11);var pixels=new byte[Side*Side*4];
-            for(int i=0;i<Side*Side;i++){byte v=(byte)(random.Next(2)*255);pixels[i*4]=pixels[i*4+1]=pixels[i*4+2]=v;pixels[i*4+3]=(byte)random.Next(1,3);}
+            // Ordered dithering: an 8 by 8 Bayer pattern adding nothing, one or two levels of white in an even spread. It breaks the steps of a dark gradient
+            // into a pattern too fine and regular to see, where random grain strong enough to do the same looked rocky and fuzzy.
+            const int Side=8;
+            int[] bayer={0,32,8,40,2,34,10,42,48,16,56,24,50,18,58,26,12,44,4,36,14,46,6,38,60,28,52,20,62,30,54,22,3,35,11,43,1,33,9,41,51,19,59,27,49,17,57,25,15,47,7,39,13,45,5,37,63,31,55,23,61,29,53,21};
+            var pixels=new byte[Side*Side*4];
+            for(int i=0;i<Side*Side;i++){pixels[i*4]=pixels[i*4+1]=pixels[i*4+2]=255;pixels[i*4+3]=(byte)(bayer[i]*3/64);}
             var tile=BitmapSource.Create(Side,Side,96,96,PixelFormats.Bgra32,null,pixels,Side*4);
             var brush=new ImageBrush(tile){TileMode=TileMode.Tile,Viewport=new Rect(0,0,Side,Side),ViewportUnits=BrushMappingMode.Absolute,Stretch=Stretch.None};
             RenderOptions.SetBitmapScalingMode(brush,BitmapScalingMode.NearestNeighbor);
@@ -182,6 +185,27 @@ namespace Lucent
             }
             var bmp=BitmapSource.Create(S,S,96,96,PixelFormats.Bgra32,null,px,S*4);bmp.Freeze();
             return idleCover=bmp;
+        }
+        // The Vice Sunset theme's colors as a "cover" for everything that takes its colors from one (the player bar, the still background, the accent):
+        // the GTA VI logo's gradient, violet at the top through hot pink to orange at the bottom. (The window itself shows the moving SunsetBackdrop.)
+        static BitmapSource sunsetCover;
+        internal static BitmapSource SunsetCover()
+        {
+            if(sunsetCover!=null)return sunsetCover;
+            // Corner to corner like the icon, eased between its colors and fine enough (256 pixels) that, stretched and blurred behind the glass,
+            // it shows no steps (the small, banded version showed as faint lines through the player bar).
+            const int S=256;var px=new byte[S*S*4];
+            double[] at={0,.22,.42,.62,.82,1};
+            byte[,] c={{66,36,150},{104,38,168},{142,40,160},{146,38,118},{122,46,78},{138,82,36}};
+            for(int y=0;y<S;y++)for(int x=0;x<S;x++)
+            {
+                double t=(x*.25+y*.75)/(S-1);int k=0;while(k<at.Length-2&&t>at[k+1])k++;
+                double u=Math.Max(0,Math.Min(1,(t-at[k])/(at[k+1]-at[k])));u=u*u*(3-2*u);
+                int i=(y*S+x)*4;
+                px[i]=(byte)(c[k,2]+(c[k+1,2]-c[k,2])*u);px[i+1]=(byte)(c[k,1]+(c[k+1,1]-c[k,1])*u);px[i+2]=(byte)(c[k,0]+(c[k+1,0]-c[k,0])*u);px[i+3]=255;
+            }
+            var bmp=BitmapSource.Create(S,S,96,96,PixelFormats.Bgra32,null,px,S*4);bmp.Freeze();
+            return sunsetCover=bmp;
         }
         // Mode 0 is the plain background, 1 the rich one (the app), 2 the one of the players.
         internal static BitmapSource[] SmoothSet(BitmapSource cover,int mode,double lightCap,double chroma=0)
@@ -507,6 +531,124 @@ namespace Lucent
                 for(int i=0;i<clocks.Count;i++){var entry=clocks[i];entry.Item1.ApplyAnimationClock(entry.Item2,null);entry.Item1.SetValue(entry.Item2,values[i]);}
                 clocks.Clear();
             }
+        }
+    }
+
+    // The Vice Sunset theme's own background: the icon's colors corner to corner (blue, violet, magenta, hot pink, coral, orange), kept moving.
+    // Every layer is painted once into a picture the graphics card keeps (a bitmap cache), and the motion only moves, turns and fades those pictures:
+    // repainting a full-window gradient and masked streaks at every frame kept the render thread busy and made the whole app lag.
+    // Two copies of the sky with their bands in different places cross-fade, so the bands seem to drift; the sky leans slowly; a blue and an orange glow
+    // wander; soft streaks of light sweep across.
+    internal sealed class SunsetBackdrop:Grid
+    {
+        // Discord's Vice City colors: deep violet at the top, through purple and magenta, to a dark wine and a warm amber at the bottom.
+        static readonly Color[] Colors={Color.FromRgb(66,36,150),Color.FromRgb(104,38,168),Color.FromRgb(142,40,160),Color.FromRgb(146,38,118),Color.FromRgb(122,46,78),Color.FromRgb(138,82,36)};
+        readonly Canvas field=new Canvas {ClipToBounds=true,IsHitTestVisible=false};
+        readonly Image skyA,skyB;
+        readonly System.Windows.Shapes.Ellipse topGlow,sunGlow;
+        // (No streaks: the Discord look is a calm gradient that only drifts slightly.)
+        readonly System.Windows.Shapes.Ellipse[] streaks=new System.Windows.Shapes.Ellipse[0];
+        bool running;
+        public SunsetBackdrop()
+        {
+            IsHitTestVisible=false;ClipToBounds=true;
+            Background=new SolidColorBrush(Color.FromRgb(160,60,190));
+            skyA=Sky(new[]{0,.22,.42,.62,.82,1});
+            skyB=Sky(new[]{0,.14,.32,.52,.74,1});
+            field.Children.Add(skyA);field.Children.Add(skyB);
+            topGlow=Glow(Color.FromArgb(70,96,56,210));sunGlow=Glow(Color.FromArgb(60,200,110,60));
+            field.Children.Add(topGlow);field.Children.Add(sunGlow);
+            for(int i=0;i<streaks.Length;i++)
+            {
+                // A long soft ellipse of light: its own radial fade gives the soft edges, so it needs no mask.
+                var light=new RadialGradientBrush();
+                light.GradientStops.Add(new GradientStop(Color.FromArgb((byte)(i%2==0?52:34),255,(byte)(i%2==0?225:205),(byte)(i%2==0?235:160)),0));
+                light.GradientStops.Add(new GradientStop(Color.FromArgb(0,255,255,255),1));
+                light.Freeze();
+                streaks[i]=new System.Windows.Shapes.Ellipse {Fill=light,RenderTransformOrigin=new Point(.5,.5),CacheMode=new BitmapCache()};
+                field.Children.Add(streaks[i]);
+            }
+            Children.Add(field);
+            // A little shade, more toward the bottom, so white text stays easy to read.
+            Children.Add(new Border {IsHitTestVisible=false,Background=new LinearGradientBrush(Color.FromArgb(24,0,0,0),Color.FromArgb(60,0,0,0),90)});
+            SizeChanged+=(s,e)=>{Layout();if(running)Start();};
+            IsVisibleChanged+=(s,e)=>{if(IsVisible)Start();else Stop();};
+        }
+        // The sky as a small picture, corner to corner, stretched smooth across the window.
+        static Image Sky(double[] at)
+        {
+            const int W=160,H=100;var px=new byte[W*H*4];
+            for(int y=0;y<H;y++)for(int x=0;x<W;x++)
+            {
+                double t=x/(double)(W-1)*.25+y/(double)(H-1)*.75;int k=0;while(k<at.Length-2&&t>at[k+1])k++;
+                double u=Math.Max(0,Math.Min(1,(t-at[k])/(at[k+1]-at[k])));u=u*u*(3-2*u);
+                Color a=Colors[k],b=Colors[k+1];int i=(y*W+x)*4;
+                px[i]=(byte)(a.B+(b.B-a.B)*u);px[i+1]=(byte)(a.G+(b.G-a.G)*u);px[i+2]=(byte)(a.R+(b.R-a.R)*u);px[i+3]=255;
+            }
+            var bitmap=BitmapSource.Create(W,H,96,96,PixelFormats.Bgra32,null,px,W*4);bitmap.Freeze();
+            var image=new Image {Source=bitmap,Stretch=Stretch.Fill,RenderTransformOrigin=new Point(.5,.5),CacheMode=new BitmapCache()};
+            RenderOptions.SetBitmapScalingMode(image,BitmapScalingMode.Linear);
+            return image;
+        }
+        static System.Windows.Shapes.Ellipse Glow(Color color)
+        {
+            var brush=new RadialGradientBrush();
+            brush.GradientStops.Add(new GradientStop(color,0));brush.GradientStops.Add(new GradientStop(Color.FromArgb(0,color.R,color.G,color.B),1));brush.Freeze();
+            return new System.Windows.Shapes.Ellipse {Fill=brush,RenderTransform=new TranslateTransform(),CacheMode=new BitmapCache()};
+        }
+        void Layout()
+        {
+            double w=ActualWidth,h=ActualHeight,diag=Math.Sqrt(w*w+h*h);
+            if(w<=0||h<=0)return;
+            // The sky is larger than the window, so leaning it never shows an edge.
+            foreach(var sky in new[]{skyA,skyB}){sky.Width=w*1.3;sky.Height=h*1.3;Canvas.SetLeft(sky,-w*.15);Canvas.SetTop(sky,-h*.15);}
+            topGlow.Width=w*1.1;topGlow.Height=h*.9;Canvas.SetLeft(topGlow,w*.35);Canvas.SetTop(topGlow,-h*.45);
+            sunGlow.Width=w*.9;sunGlow.Height=h*.8;Canvas.SetLeft(sunGlow,w*.05);Canvas.SetTop(sunGlow,h*.55);
+            for(int i=0;i<streaks.Length;i++)
+            {
+                var streak=streaks[i];
+                streak.Width=diag*.9;streak.Height=h*(i%2==0?.24:.14);
+                Canvas.SetLeft(streak,(w-streak.Width)/2);Canvas.SetTop(streak,h*(.15+.22*i)-streak.Height/2);
+            }
+        }
+        // The sunset drifts slowly and never stops, so 30 frames a second is plenty.
+        static T Slow<T>(T timeline) where T:Timeline{Timeline.SetDesiredFrameRate(timeline,30);return timeline;}
+        static DoubleAnimation Swing(double from,double to,double seconds,double offset=0)
+        {
+            return Slow(new DoubleAnimation(from,to,TimeSpan.FromSeconds(seconds)){AutoReverse=true,RepeatBehavior=RepeatBehavior.Forever,BeginTime=TimeSpan.FromSeconds(-offset),EasingFunction=new SineEase{EasingMode=EasingMode.EaseInOut}});
+        }
+        internal void Start()
+        {
+            running=true;
+            double w=Math.Max(1,ActualWidth),h=Math.Max(1,ActualHeight),diag=Math.Sqrt(w*w+h*h);
+            // The bands drift (one sky fades into the other) and the sky leans and swells gently.
+            skyB.BeginAnimation(OpacityProperty,Swing(0,1,9));
+            var leanA=new TransformGroup();var turnA=new RotateTransform();var growA=new ScaleTransform();leanA.Children.Add(growA);leanA.Children.Add(turnA);skyA.RenderTransform=leanA;
+            var leanB=new TransformGroup();var turnB=new RotateTransform();var growB=new ScaleTransform();leanB.Children.Add(growB);leanB.Children.Add(turnB);skyB.RenderTransform=leanB;
+            turnA.BeginAnimation(RotateTransform.AngleProperty,Swing(-3,3,18));turnB.BeginAnimation(RotateTransform.AngleProperty,Swing(2.5,-2.5,21,4));
+            growA.BeginAnimation(ScaleTransform.ScaleXProperty,Swing(1,1.05,14));growA.BeginAnimation(ScaleTransform.ScaleYProperty,Swing(1,1.05,14));
+            growB.BeginAnimation(ScaleTransform.ScaleXProperty,Swing(1.05,1,16,3));growB.BeginAnimation(ScaleTransform.ScaleYProperty,Swing(1.05,1,16,3));
+            var top=(TranslateTransform)topGlow.RenderTransform;var sun=(TranslateTransform)sunGlow.RenderTransform;
+            top.BeginAnimation(TranslateTransform.XProperty,Swing(-w*.35,w*.1,13));top.BeginAnimation(TranslateTransform.YProperty,Swing(-h*.05,h*.12,10,2));
+            sun.BeginAnimation(TranslateTransform.XProperty,Swing(0,w*.4,16,4));sun.BeginAnimation(TranslateTransform.YProperty,Swing(h*.08,-h*.1,9));
+            sunGlow.BeginAnimation(OpacityProperty,Swing(.7,1,5));
+            // The streaks sweep across on a slant, one after another, and come back round.
+            for(int i=0;i<streaks.Length;i++)
+            {
+                var move=new TransformGroup();move.Children.Add(new RotateTransform(-18+i*5));var slide=new TranslateTransform();move.Children.Add(slide);
+                streaks[i].RenderTransform=move;
+                double seconds=10+i*3.5;
+                slide.BeginAnimation(TranslateTransform.XProperty,Slow(new DoubleAnimation(-diag,diag,TimeSpan.FromSeconds(seconds)){RepeatBehavior=RepeatBehavior.Forever,BeginTime=TimeSpan.FromSeconds(-seconds*i/streaks.Length)}));
+                slide.BeginAnimation(TranslateTransform.YProperty,Swing(-h*.06,h*.06,7+i,i));
+            }
+        }
+        internal void Stop()
+        {
+            running=false;
+            skyB.BeginAnimation(OpacityProperty,null);
+            foreach(var sky in new[]{skyA,skyB})sky.RenderTransform=Transform.Identity;
+            foreach(var glow in new[]{topGlow,sunGlow}){var t=(TranslateTransform)glow.RenderTransform;t.BeginAnimation(TranslateTransform.XProperty,null);t.BeginAnimation(TranslateTransform.YProperty,null);glow.BeginAnimation(OpacityProperty,null);}
+            foreach(var streak in streaks)streak.RenderTransform=Transform.Identity;
         }
     }
 }
