@@ -173,7 +173,8 @@ namespace Lucent
             WindowStyle=WindowStyle.SingleBorderWindow;
             ResizeMode=ResizeMode.CanResize;
             SourceInitialized+=(s,e)=>WindowEdges.Round(this);
-            Icon=System.Windows.Media.Imaging.BitmapFrame.Create(new Uri(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Lucent.ico")));
+            // Through November the Vice icon is on from the start, so Windows never sees the plain one first.
+            Icon=!Preferences.SunsetIsSetting(DateTime.Now)?(ImageSource)System.Windows.Media.Imaging.BitmapDecoder.Create(new MemoryStream(ResolutionSwitcher.Brand.SunsetIco()),System.Windows.Media.Imaging.BitmapCreateOptions.None,System.Windows.Media.Imaging.BitmapCacheOption.OnLoad).Frames[0]:System.Windows.Media.Imaging.BitmapFrame.Create(new Uri(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Lucent.ico")));
             InitializeMutablePalette();
             Resources=Design.Resources(Styles);
             Resources["AdaptiveControlBrush"]=optionSurface;

@@ -39,14 +39,14 @@ namespace Lucent
         internal static string Show(Version version)
         {
             if(version.Major==0)return version.ToString(3);
-            return version.Major+"."+version.Minor.ToString("0000")+(version.Build>0?"."+version.Build:"");
+            return version.Major+"."+version.Minor.ToString("0000")+(version.Build>0||version.Revision>0?"."+version.Build:"")+(version.Revision>0?"."+version.Revision:"");
         }
         // Which of two versions is newer. In 1.MMYY the year counts before the month, so 1.0127 (January 2027) is newer than 1.1226 (December 2026).
         internal static int Compare(Version first,Version second)
         {
-            Func<Version,int[]> key=v=>v.Major==0?new[]{0,v.Minor,v.Build,v.Revision}:new[]{v.Major,v.Minor%100,v.Minor/100,v.Build};
+            Func<Version,int[]> key=v=>v.Major==0?new[]{0,v.Minor,v.Build,v.Revision,0}:new[]{v.Major,v.Minor%100,v.Minor/100,v.Build,Math.Max(0,v.Revision)};
             var a=key(first);var b=key(second);
-            for(int i=0;i<4;i++)if(a[i]!=b[i])return a[i]<b[i]?-1:1;
+            for(int i=0;i<5;i++)if(a[i]!=b[i])return a[i]<b[i]?-1:1;
             return 0;
         }
 
